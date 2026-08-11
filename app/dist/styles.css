@@ -118,6 +118,18 @@ input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(201,169,98,0
 .back, .link {
   background: none; border: none; color: var(--gold); font-size: 14px; cursor: pointer; padding: 0;
 }
+.link.inline {
+  display: inline; font-size: inherit; text-decoration: underline; padding: 0; vertical-align: baseline;
+}
+.sopd-text {
+  font-size: 14px; line-height: 1.55; color: #c8c5be;
+}
+.sopd-text h3 {
+  color: var(--gold2); font-size: 15px; margin: 18px 0 8px;
+}
+.sopd-text p { margin: 0 0 10px; }
+.sopd-text ul { margin: 0 0 10px; padding-left: 18px; }
+.sopd-text li { margin-bottom: 6px; }
 h2 { margin: 0; font-size: 18px; font-weight: 600; flex: 1; text-align: center; }
 .top.sub .back { position: absolute; left: 16px; }
 .top.sub { position: relative; justify-content: center; min-height: 28px; }

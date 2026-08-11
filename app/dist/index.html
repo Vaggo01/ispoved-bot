@@ -34,10 +34,22 @@
         <label>Дата рождения</label>
         <input id="reg-bday" type="date" />
         <label class="check">
-          <input type="checkbox" id="reg-sopd" checked />
-          <span>Согласен на обработку данных для программы лояльности</span>
+          <input type="checkbox" id="reg-sopd" />
+          <span>Я согласен(на) с <button type="button" class="link inline" id="btn-sopd-open">политикой обработки данных (СОПД)</button></span>
         </label>
         <button type="button" class="btn primary block" id="btn-register">Выпустить карту</button>
+      </div>
+    </section>
+
+    <!-- SOPD full text -->
+    <section id="view-sopd" class="view">
+      <header class="top sub">
+        <button type="button" class="back" id="btn-sopd-back">← Назад</button>
+        <h2>СОПД</h2>
+      </header>
+      <div class="pad sopd-text" id="sopd-body"></div>
+      <div class="pad">
+        <button type="button" class="btn primary block" id="btn-sopd-accept">Принимаю</button>
       </div>
     </section>
 
@@ -161,6 +173,7 @@
       <div class="menu-list pad">
         <button type="button" class="menu-row" data-go="history">История заказов</button>
         <button type="button" class="menu-row" data-go="promos">Акции</button>
+        <button type="button" class="menu-row" id="btn-sopd-profile">Политика данных (СОПД)</button>
         <a class="menu-row" id="addr-link" href="#" target="_blank" rel="noopener">Адрес и контакты</a>
       </div>
     </section>
@@ -209,11 +222,7 @@
     </div>
   </div>
 
-  <!--
-    Если Mini App на GitHub Pages, а API на Bothost — раскомментируй и подставь URL:
-    <script>window.ISPOVED_API = "https://ТВОЙ-ПУБЛИЧНЫЙ-API";</script>
-    Или открой: .../ispoved/?api=https://ТВОЙ-API
-  -->
+  <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

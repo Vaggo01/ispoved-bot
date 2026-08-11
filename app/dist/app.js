@@ -7,9 +7,55 @@
     try { tg.setHeaderColor("#0c0c0e"); tg.setBackgroundColor("#0c0c0e"); } catch (_) {}
   }
 
-  // API base: same origin if served from bot, else override
+  // API base: ?api=... | config.js ISPOVED_API | same origin
   const params = new URLSearchParams(location.search);
   const API_BASE = (params.get("api") || window.ISPOVED_API || "").replace(/\/$/, "");
+
+  const SOPD_HTML = `
+    <p><b>Политика обработки персональных данных</b><br>
+    Программа лояльности лаундж-бара «Исповедь»</p>
+    <p>г. Пермь, ул. Николая Островского, 93Д<br>
+    Telegram-бот карты лояльности</p>
+
+    <h3>1. Кто обрабатывает данные</h3>
+    <p>Оператор — заведение «Исповедь» (лаундж-бар). Обработка ведётся с помощью Telegram-бота и мини-приложения карты лояльности.</p>
+
+    <h3>2. Какие данные мы получаем</h3>
+    <ul>
+      <li>имя и (если указана) фамилия;</li>
+      <li>номер телефона (если вы его передали);</li>
+      <li>дата рождения (если указали — для поздравления и бонуса);</li>
+      <li>идентификатор и username в Telegram;</li>
+      <li>номер карты лояльности, баланс бонусов, история визитов и начислений;</li>
+      <li>технические данные работы бота (время обращений), без продажи третьим лицам.</li>
+    </ul>
+
+    <h3>3. Зачем</h3>
+    <ul>
+      <li>программа лояльности: бонусы, уровни, штампы, купоны;</li>
+      <li>идентификация гостя в зале (QR / номер карты);</li>
+      <li>уведомления о визитах, акциях, дне рождения (можно отключить);</li>
+      <li>бронь и сообщения администрации (если вы ими пользуетесь);</li>
+      <li>статистика для улучшения сервиса заведения.</li>
+    </ul>
+
+    <h3>4. Правовая основа</h3>
+    <p>Согласие субъекта персональных данных, которое вы даёте при выпуске карты (галочка и кнопка «Выпустить карту» / «Принимаю»). Отзыв согласия — через сообщение директору в боте или администратору заведения; карта и бонусы при этом могут быть аннулированы.</p>
+
+    <h3>5. Срок хранения</h3>
+    <p>Пока вы участник программы лояльности. После отзыва согласия или запроса на удаление — в разумный срок, если иное не требуется законом.</p>
+
+    <h3>6. Кому могут передаваться данные</h3>
+    <p>Мы не продаём ваши данные. Доступ могут иметь сотрудники заведения (официант, администрация) в объёме, нужном для начисления бонусов. Технические площадки (Telegram, хостинг бота) обрабатывают данные только для работы сервиса.</p>
+
+    <h3>7. Ваши права</h3>
+    <p>Вы можете запросить уточнение данных, их удаление или копию через бота («Написать директору») или администрацию заведения.</p>
+
+    <h3>8. Контакты</h3>
+    <p>«Исповедь», Пермь, ул. Николая Островского, 93Д. Связь — через Telegram-бота программы лояльности.</p>
+
+    <p class="muted">Текст подготовлен для работы сервиса. При необходимости заведение может заменить его официальной редакцией.</p>
+  `;
 
   const state = {
     me: null,
@@ -293,6 +339,10 @@
       alert("Укажите имя");
       return;
     }
+    if (!$("reg-sopd").checked) {
+      alert("Нужно принять политику обработки данных (СОПД)");
+      return;
+    }
     try {
       const data = await api("/api/register", { method: "POST", body });
       renderGuest(data.guest);
@@ -301,6 +351,12 @@
     } catch (e) {
       alert(e.message || "Ошибка");
     }
+  }
+
+  function openSopd(from) {
+    state._sopdFrom = from || "reg";
+    $("sopd-body").innerHTML = SOPD_HTML;
+    show("view-sopd");
   }
 
   // Staff
@@ -384,6 +440,21 @@
     if (e.target === $("qr-overlay")) closeQr();
   });
   $("btn-register").addEventListener("click", register);
+  $("btn-sopd-open").addEventListener("click", (e) => {
+    e.preventDefault();
+    openSopd("reg");
+  });
+  $("btn-sopd-profile").addEventListener("click", () => openSopd("profile"));
+  $("btn-sopd-back").addEventListener("click", () => {
+    go(state._sopdFrom === "profile" ? "profile" : "reg");
+  });
+  $("btn-sopd-accept").addEventListener("click", () => {
+    $("reg-sopd").checked = true;
+    if (tg && tg.HapticFeedback) {
+      try { tg.HapticFeedback.notificationOccurred("success"); } catch (_) {}
+    }
+    go(state._sopdFrom === "profile" ? "profile" : "reg");
+  });
   $("btn-contact").addEventListener("click", () => {
     if (tg && tg.requestContact) {
       tg.requestContact((ok, res) => {
