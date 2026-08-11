@@ -245,7 +245,12 @@ def _norm_webapp_url(raw):
         u = u + "/app"
     return u + "/"
 
-WEBAPP_URL = _norm_webapp_url(os.environ.get("WEBAPP_URL", ""))
+# Bothost часто кладёт DOMAIN=ispoved.bothost.tech без WEBAPP_URL
+WEBAPP_URL = _norm_webapp_url(
+    os.environ.get("WEBAPP_URL")
+    or os.environ.get("DOMAIN")
+    or ""
+)
 
 # ── HTTP API для Mini App (stdlib ThreadingHTTPServer) ────────
 # Bothost часто задаёт PORT; иначе API_PORT (8080). 0 = HTTP выкл.

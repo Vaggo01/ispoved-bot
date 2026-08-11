@@ -7,9 +7,15 @@
     try { tg.setHeaderColor("#0c0c0e"); tg.setBackgroundColor("#0c0c0e"); } catch (_) {}
   }
 
-  // API base: ?api=... | config.js ISPOVED_API | same origin
+  // API: ?api= | config.js | same origin on Bothost / any host serving /api
   const params = new URLSearchParams(location.search);
-  const API_BASE = (params.get("api") || window.ISPOVED_API || "").replace(/\/$/, "");
+  function resolveApiBase() {
+    if (params.get("api")) return params.get("api").replace(/\/$/, "");
+    if (window.ISPOVED_API) return String(window.ISPOVED_API).replace(/\/$/, "");
+    // same host as Mini App (https://ispoved.bothost.tech/app/ → origin)
+    return "";
+  }
+  const API_BASE = resolveApiBase();
 
   const SOPD_HTML = `
     <p><b>Политика обработки персональных данных</b><br>
@@ -283,12 +289,39 @@
 
   async function boot() {
     show("view-boot");
-    if (!initData() && !params.get("demo")) {
-      // Outside Telegram — still try health for debugging
+    const hasTg = !!(initData() || (tg && tg.initDataUnsafe && tg.initDataUnsafe.user));
+
+    // Outside Telegram: show shell + status, no fake panic
+    if (!hasTg && !params.get("demo")) {
       try {
-        await api("/api/health");
-      } catch (_) {}
+        const h = await api("/api/health");
+        renderGuest({
+          name: "Превью",
+          bonus: 0,
+          spent: 0,
+          visits: 0,
+          stamp_count: 0,
+          free_hookah_pending: 0,
+          card: "------",
+          card_pretty: "--- ---",
+          level: { name: "Гость", cashback: 5, from: 0 },
+          next_level: { name: "Свой", from: 15000, cashback: 7 },
+          brand: { city: "Пермь", addr: "ул. Николая Островского, 93Д", phone: "" },
+        });
+        $("tabs").classList.remove("hidden");
+        go("home");
+        $("hello-name").textContent = "открой в Telegram";
+        $("level-next").textContent =
+          "API: " + (h.bot ? "@" + h.bot : "ok") + " · карта и бонусы — только из бота";
+      } catch (e) {
+        show("view-boot");
+        document.querySelector("#view-boot .boot-sub").textContent =
+          "API недоступен. Обнови бота на Bothost.";
+        document.querySelector("#view-boot .spinner").style.display = "none";
+      }
+      return;
     }
+
     try {
       const me = await api("/api/me");
       state.me = me;
@@ -299,7 +332,6 @@
         $("tab-staff").classList.remove("hidden");
       }
       const incomplete = me.guest && !me.guest.profile_complete && !me.guest.phone;
-      // soft: show home always; optional reg if brand-new and no name
       if (incomplete && !(me.guest.name && me.guest.name.length > 1)) {
         $("reg-name").value = me.guest.name || (tg?.initDataUnsafe?.user?.first_name || "");
         go("reg");
@@ -309,25 +341,26 @@
       }
     } catch (e) {
       console.error(e);
-      // Demo fallback shell
+      const msg = (e && e.message) ? e.message : "ошибка API";
       renderGuest({
         name: "Гость",
-        bonus: 300,
+        bonus: 0,
         spent: 0,
         visits: 0,
         stamp_count: 0,
         free_hookah_pending: 0,
-        card: "000000",
-        card_pretty: "000 000",
+        card: "------",
+        card_pretty: "--- ---",
         level: { name: "Гость", cashback: 5, from: 0 },
         next_level: { name: "Свой", from: 15000, cashback: 7 },
         brand: { city: "Пермь", addr: "ул. Николая Островского, 93Д", phone: "" },
       });
       $("tabs").classList.remove("hidden");
       go("home");
-      if (tg) {
+      $("level-next").textContent = "Связь: " + msg;
+      if (tg && tg.showAlert) {
         try {
-          tg.showAlert("Не удалось связаться с API. Проверьте WEBAPP_URL / API.");
+          tg.showAlert("Не удалось загрузить карту: " + msg + "\nЗакрой Mini App и открой снова. Если снова ошибка — обнови бота (Git) на Bothost.");
         } catch (_) {}
       }
     }

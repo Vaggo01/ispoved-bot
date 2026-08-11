@@ -1,5 +1,4 @@
-// Публичный HTTPS URL API бота (Bothost / VPS).
-// После деплоя бота подставь сюда адрес, например:
-//   window.ISPOVED_API = "https://xxx.bothost.ru";
-// Пока пусто — Mini App ходит на тот же хост, откуда открыт (если /app с бота).
+// API: пусто = тот же хост (Bothost: https://ispoved.bothost.tech).
+// Если открываете с GitHub Pages — раскомментируйте строку ниже.
 window.ISPOVED_API = window.ISPOVED_API || "";
+// window.ISPOVED_API = "https://ispoved.bothost.tech";
