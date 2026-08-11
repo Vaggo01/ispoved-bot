@@ -190,7 +190,11 @@ class Handler(BaseHTTPRequestHandler):
             })
             return self._send(c, b)
 
-        if path.startswith("/app/") or path in ("/app", "/"):
+        # Mini App static: /app/..., корень / и ассеты (styles.css, app.js, ...)
+        if (path.startswith("/app/") or path in ("/app", "/")
+                or path in ("/index.html", "/styles.css", "/app.js", "/config.js",
+                            "/favicon.ico")
+                or path.endswith((".css", ".js", ".html", ".png", ".svg", ".ico", ".webp"))):
             return self._static(path)
 
         if path == "/api/me":
@@ -401,18 +405,28 @@ class Handler(BaseHTTPRequestHandler):
         root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app")
         dist = os.path.join(root, "dist")
         base = dist if os.path.isdir(dist) else root
-        rel = path[len("/app"):] if path.startswith("/app") else path
+        if path.startswith("/app"):
+            rel = path[len("/app"):]  # /app or /app/foo
+        else:
+            rel = path
         if not rel or rel == "/":
             rel = "/index.html"
         rel = rel.lstrip("/").replace("..", "")
         fpath = os.path.join(base, rel)
         if not os.path.isfile(fpath):
-            # SPA fallback
-            fpath = os.path.join(base, "index.html")
+            # SPA fallback only for navigations, not missing assets
+            if rel.endswith((".html", "")) or "." not in rel:
+                fpath = os.path.join(base, "index.html")
         if not os.path.isfile(fpath):
-            c, b = _json_bytes({"error": "app not found — build app/"}, 404)
+            c, b = _json_bytes({"error": "not found", "path": rel}, 404)
             return self._send(c, b)
         ctype = mimetypes.guess_type(fpath)[0] or "application/octet-stream"
+        if rel.endswith(".js"):
+            ctype = "application/javascript; charset=utf-8"
+        elif rel.endswith(".css"):
+            ctype = "text/css; charset=utf-8"
+        elif rel.endswith(".html"):
+            ctype = "text/html; charset=utf-8"
         with open(fpath, "rb") as f:
             data = f.read()
         self._send(200, data, ctype)

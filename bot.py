@@ -231,8 +231,21 @@ LOYALTY = {
 SHEETS_URL = os.environ.get("SHEETS_URL", "").strip()
 
 # ── Ссылка на мини-приложение ─────────────────────────────────
-# HTTPS-адрес (GitHub Pages / CDN / reverse-proxy). Пусто = кнопка WebApp скрыта.
-WEBAPP_URL = os.environ.get("WEBAPP_URL", "").strip()
+# HTTPS URL Mini App. ispoved.bothost.tech → https://ispoved.bothost.tech/app/
+def _norm_webapp_url(raw):
+    u = (raw or "").strip()
+    if not u:
+        return ""
+    if not (u.startswith("http://") or u.startswith("https://")):
+        u = "https://" + u.lstrip("/")
+    u = u.rstrip("/")
+    # только хост (без path) → /app
+    parsed = urllib.parse.urlparse(u)
+    if not parsed.path or parsed.path == "/":
+        u = u + "/app"
+    return u + "/"
+
+WEBAPP_URL = _norm_webapp_url(os.environ.get("WEBAPP_URL", ""))
 
 # ── HTTP API для Mini App (stdlib ThreadingHTTPServer) ────────
 # Bothost часто задаёт PORT; иначе API_PORT (8080). 0 = HTTP выкл.
