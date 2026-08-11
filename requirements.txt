@@ -1,0 +1,2 @@
+# Ispoved loyalty bot — no third-party packages (Python stdlib only).
+# File must exist so Bothost treats the project as Python.
