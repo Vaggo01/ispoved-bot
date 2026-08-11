@@ -17,6 +17,9 @@ services:
       DB_PATH: "/app/data/ispoved.db"
     volumes:
       - ispoved_data:/app/data
+    # 8080 на хосте — чтобы curl 127.0.0.1:8080 работал (отладка)
+    ports:
+      - "8080:8080"
     expose:
       - "8080"
     networks:
