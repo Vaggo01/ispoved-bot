@@ -2059,33 +2059,35 @@ def send_card_qr(uid, g):
 
 
 def guest_menu(g):
-    """Inline-кнопки. WebApp URL всегда из WEBAPP_URL (нормализован при старте)."""
-    rows = [
-        [("QR-код для зала", "g:qr")],
-        [("Моя карта", "g:card"), ("Бонусы и уровни", "g:bonus")],
-        [("Меню заведения", "g:menu"), ("История", "g:hist")],
-        [("Ввести купон", "g:coupon")],
-        [("Забронировать стол", "g:book")],
-        [("Написать директору", "g:dm")],
-        [("Профиль", "g:prof")],
-    ]
+    """Inline-меню гостя. callback_data без изменений — только подписи и сетка."""
     url = (WEBAPP_URL or "").strip()
+    rows = []
     if url:
-        # inline web_app — тот же URL, что Menu Button
-        rows.insert(0, [("Открыть приложение", {"web_app": {"url": url}})])
+        rows.append([("✨  Открыть приложение", {"web_app": {"url": url}})])
+    rows += [
+        [("📱  QR для оплаты", "g:qr"), ("💳  Баланс и уровень", "g:card")],
+        [("🎁  Как копить бонусы", "g:bonus")],
+        [("🍽  Меню", "g:menu"), ("📋  История", "g:hist")],
+        [("🏷  Купон", "g:coupon"), ("📅  Бронь стола", "g:book")],
+        [("✉️  Директору", "g:dm"), ("👤  Профиль", "g:prof")],
+    ]
     return kb(rows)
 
 
 def guest_reply_kb():
-    """Нижняя клавиатура с WebApp — в Telegram надёжнее inline в старых сообщениях."""
+    """Нижняя клавиатура: приложение + быстрые действия."""
     url = (WEBAPP_URL or "").strip()
-    if not url:
-        return None
+    if url:
+        return {
+            "keyboard": [
+                [{"text": "✨ Открыть карту", "web_app": {"url": url}}],
+                [{"text": "🏠 Меню бота"}, {"text": "❓ Помощь"}],
+            ],
+            "resize_keyboard": True,
+            "is_persistent": True,
+        }
     return {
-        "keyboard": [[{
-            "text": "Открыть карту",
-            "web_app": {"url": url},
-        }]],
+        "keyboard": [[{"text": "🏠 Меню бота"}, {"text": "❓ Помощь"}]],
         "resize_keyboard": True,
         "is_persistent": True,
     }
@@ -2426,8 +2428,26 @@ def parse_phone(text):
 
 def guest_text(uid, text, g):
     st = get_state(uid)
+    # Нижняя клавиатура (без FSM)
+    tnorm = (text or "").strip()
     if not st:
-        send(uid, guest_card_text(g), guest_menu(g)); return
+        if tnorm in ("🏠 Меню бота", "Меню бота", "/menu"):
+            send(uid, guest_card_text(g), guest_menu(g))
+            return
+        if tnorm in ("❓ Помощь", "Помощь", "/help"):
+            help_t = (
+                f"<b>Как пользоваться «{esc(BRAND['name'])}»</b>\n\n"
+                f"1. Откройте <b>приложение</b> или нажмите «QR для оплаты»\n"
+                f"2. В зале покажите QR / назовите номер карты\n"
+                f"3. Бонусы капают с чека · ими можно оплатить часть счёта\n"
+                f"4. Раздел «Меню» — карта бара\n"
+                f"5. «Бронь» и «Директору» — заявки в заведение\n\n"
+                f"<i>Команды: /start — карта · /stop — без уведомлений</i>"
+            )
+            send(uid, help_t, guest_menu(g))
+            return
+        send(uid, guest_card_text(g), guest_menu(g))
+        return
     mode = st["mode"]
     clear_state(uid)
 
@@ -2500,10 +2520,9 @@ def guest_text(uid, text, g):
 # ══════════════════════════════════════════════════════════════
 def staff_menu():
     return kb([
-        [("💳 Начислить по чеку", "s:pay")],
-        [("🔍 Найти гостя", "s:find")],
-        [("🎟 Проверить купон", "s:coup")],
-        [("📊 Смена сегодня", "s:day")],
+        [("💳  Начислить по чеку", "s:pay")],
+        [("🔍  Найти гостя", "s:find"), ("🏷  Купон", "s:coup")],
+        [("📊  Смена сегодня", "s:day")],
     ])
 
 def staff_start(uid):
@@ -2696,17 +2715,15 @@ def notify_guest_visit(g, r, total, upts):
 # ══════════════════════════════════════════════════════════════
 def admin_menu(uid=None):
     rows = [
-        [("Статистика", "a:stat"), ("Гости", "a:guests")],
-        [("Начислить", "s:pay"), ("Найти", "a:find")],
-        [("Купоны", "a:coups")],
-        [("Рассылка", "a:cast")],
-        [("Выгрузить CSV", "a:export")],
-        [("Копия базы", "a:backup"), ("Настройки", "a:set")],
+        [("📊  Статистика", "a:stat"), ("👥  Гости", "a:guests")],
+        [("💳  Начислить", "s:pay"), ("🔍  Найти", "a:find")],
+        [("🏷  Купоны", "a:coups"), ("📣  Рассылка", "a:cast")],
+        [("📥  Выгрузка CSV", "a:export"), ("💾  Копия базы", "a:backup")],
+        [("⚙️  Настройки", "a:set")],
     ]
-    # Раздача ролей — только владельцу. Директор не должен мочь
-    # разжаловать того, кто ему бота поставил.
+    # Раздача ролей — только владельцу.
     if uid is not None and is_owner(uid):
-        rows.insert(5, [("Роли и доступ", "a:roles")])
+        rows.insert(4, [("🔑  Роли и доступ", "a:roles")])
     return kb(rows)
 
 def admin_start(uid):
