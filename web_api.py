@@ -17,10 +17,18 @@ import re
 import threading
 import time
 import urllib.parse
+from collections import defaultdict, deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # Injected module reference (bot.py itself)
 B = None
+
+# ── security: rate limit (IP → timestamps) ────────────────────
+_rl_lock = threading.Lock()
+_rl_hits = defaultdict(deque)  # ip -> deque of epoch times
+_RL_WINDOW = 60.0
+_RL_MAX = 90          # general
+_RL_MAX_MUTATE = 30   # POST admin/staff
 
 
 def bind(bot_module):
@@ -33,6 +41,31 @@ def _log(*a):
         B.log("api:", *a)
     else:
         print("api:", *a)
+
+
+def _client_ip(handler):
+    xff = handler.headers.get("X-Forwarded-For") or ""
+    if xff:
+        return xff.split(",")[0].strip()[:64]
+    return handler.client_address[0] if handler.client_address else "?"
+
+
+def _rate_ok(ip: str, mutate: bool = False) -> bool:
+    now = time.time()
+    limit = _RL_MAX_MUTATE if mutate else _RL_MAX
+    with _rl_lock:
+        q = _rl_hits[ip]
+        while q and now - q[0] > _RL_WINDOW:
+            q.popleft()
+        if len(q) >= limit:
+            return False
+        q.append(now)
+        # cap memory
+        if len(_rl_hits) > 5000:
+            dead = [k for k, v in _rl_hits.items() if not v or now - v[-1] > _RL_WINDOW * 2]
+            for k in dead[:2000]:
+                _rl_hits.pop(k, None)
+        return True
 
 
 # ── initData validation (Telegram WebApp) ─────────────────────
@@ -60,7 +93,6 @@ def validate_init_data(init_data: str, bot_token: str, max_age: int = 86400):
         return False, "bad hash"
     auth_date = int(flat.get("auth_date") or 0)
     if max_age and auth_date:
-        # use UTC epoch
         if abs(int(time.time()) - auth_date) > max_age:
             return False, "stale auth_date"
     user_raw = flat.get("user")
@@ -91,19 +123,21 @@ def ensure_guest_from_user(user):
     return g
 
 
-def guest_public(g):
+def guest_public(g, staff_view=False):
+    """Public guest payload. staff_view keeps phone; guest view masks partial PII if needed."""
     if not g:
         return None
     lv = B.level_of(g["spent"])
     nx = B.next_level(g["spent"])
     stamp = int(g.get("stamp_count") or 0)
+    phone = g.get("phone") or ""
     return {
         "id": g["id"],
         "card": g["card"],
         "card_pretty": B.pretty_card(g["card"]),
         "name": g.get("name") or "",
         "last_name": g.get("last_name") or "",
-        "phone": g.get("phone") or "",
+        "phone": phone,
         "bday": g.get("bday") or "",
         "gender": g.get("gender") or "",
         "bonus": g["bonus"],
@@ -125,8 +159,30 @@ def guest_public(g):
     }
 
 
+def role_public(r):
+    """Safe role row for API (no internal notes leak beyond needed)."""
+    if not r:
+        return None
+    return {
+        "id": r["id"],
+        "tg_id": int(r.get("tg_id") or 0),
+        "username": r.get("username") or "",
+        "role": r.get("role") or "",
+        "role_name": B.ROLE_NAMES.get(r.get("role"), r.get("role")),
+        "note": (r.get("note") or "")[:80],
+        "added_by": (r.get("added_by") or "")[:40],
+        "at": r.get("at") or "",
+        "pending": not bool(r.get("tg_id")),
+    }
+
+
 class Handler(BaseHTTPRequestHandler):
-    server_version = "IspovedAPI/2"
+    server_version = "IspovedAPI/3"
+
+    # staff ops: 1h; admin mutations: 30m; guest reads: 24h
+    MAX_AGE_GUEST = 86400
+    MAX_AGE_STAFF = 3600
+    MAX_AGE_ADMIN = 1800
 
     def log_message(self, fmt, *args):
         _log(self.address_string(), fmt % args)
@@ -137,6 +193,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Headers",
                          "Content-Type, X-Telegram-InitData, Idempotency-Key")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "SAMEORIGIN")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 
     def _send(self, code, body, content_type="application/json; charset=utf-8"):
         self.send_response(code)
@@ -144,6 +204,14 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        if content_type.startswith("text/html"):
+            self.send_header(
+                "Content-Security-Policy",
+                "default-src 'self'; script-src 'self' https://telegram.org; "
+                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                "font-src 'self' https://fonts.gstatic.com; "
+                "img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'self'",
+            )
         self.end_headers()
         self.wfile.write(body)
 
@@ -154,19 +222,21 @@ class Handler(BaseHTTPRequestHandler):
 
     def _read_json(self):
         n = int(self.headers.get("Content-Length") or 0)
+        if n > 256_000:
+            return {}
         raw = self.rfile.read(n) if n else b"{}"
         try:
             return json.loads(raw.decode("utf-8") or "{}")
         except Exception:
             return {}
 
-    def _auth(self, max_age=86400):
+    def _auth(self, max_age=86400, allow_query=False):
+        """Validate Telegram WebApp initData. Query fallback only for debug GETs."""
         init = (self.headers.get("X-Telegram-InitData")
                 or self.headers.get("Authorization") or "")
         if init.lower().startswith("tma "):
             init = init[4:].strip()
-        if not init:
-            # query fallback for simple GETs in debug (not for staff mutations)
+        if not init and allow_query:
             q = urllib.parse.urlparse(self.path).query
             qs = urllib.parse.parse_qs(q)
             init = (qs.get("initData") or [""])[0]
@@ -175,10 +245,25 @@ class Handler(BaseHTTPRequestHandler):
             return None, user
         return user, None
 
+    def _require_role(self, user, *allowed):
+        """Check raw_role is in allowed. Returns (role, error_response_or_None)."""
+        rid = int(user["id"])
+        uname = user.get("username") or ""
+        role = B.raw_role(rid, uname)
+        if role not in allowed:
+            return role, ("forbidden", 403)
+        return role, None
+
     def do_GET(self):
         if getattr(B, "MAINTENANCE", False):
             c, b = _json_bytes({"error": "maintenance"}, 503)
             return self._send(c, b)
+
+        ip = _client_ip(self)
+        if not _rate_ok(ip, mutate=False):
+            c, b = _json_bytes({"error": "too many requests"}, 429)
+            return self._send(c, b)
+
         path = urllib.parse.urlparse(self.path).path
 
         if path in ("/api/health", "/health"):
@@ -190,15 +275,16 @@ class Handler(BaseHTTPRequestHandler):
             })
             return self._send(c, b)
 
-        # Mini App static: /app/..., корень / и ассеты (styles.css, app.js, ...)
+        # Mini App static
         if (path.startswith("/app/") or path in ("/app", "/")
                 or path in ("/index.html", "/styles.css", "/app.js", "/config.js",
-                            "/favicon.ico")
-                or path.endswith((".css", ".js", ".html", ".png", ".svg", ".ico", ".webp"))):
+                            "/favicon.ico", "/bg-lounge.jpg")
+                or path.endswith((".css", ".js", ".html", ".png", ".svg", ".ico",
+                                  ".webp", ".jpg", ".jpeg", ".woff2"))):
             return self._static(path)
 
         if path == "/api/me":
-            user, err = self._auth()
+            user, err = self._auth(max_age=self.MAX_AGE_GUEST)
             if err:
                 c, b = _json_bytes({"error": err}, 401)
                 return self._send(c, b)
@@ -213,7 +299,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(c, b)
 
         if path == "/api/qr":
-            user, err = self._auth()
+            user, err = self._auth(max_age=self.MAX_AGE_GUEST)
             if err:
                 c, b = _json_bytes({"error": err}, 401)
                 return self._send(c, b)
@@ -222,7 +308,8 @@ class Handler(BaseHTTPRequestHandler):
                 png = B.png(str(g["card"]), scale=8, quiet=4)
                 b64 = base64.b64encode(png).decode("ascii")
             except Exception as e:
-                c, b = _json_bytes({"error": f"qr: {e}"}, 500)
+                _log("qr error", repr(e))
+                c, b = _json_bytes({"error": "qr failed"}, 500)
                 return self._send(c, b)
             c, b = _json_bytes({
                 "ok": True,
@@ -233,7 +320,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(c, b)
 
         if path == "/api/history":
-            user, err = self._auth()
+            user, err = self._auth(max_age=self.MAX_AGE_GUEST)
             if err:
                 c, b = _json_bytes({"error": err}, 401)
                 return self._send(c, b)
@@ -253,11 +340,71 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(c, b)
 
         if path == "/api/menu":
-            user, err = self._auth()
+            user, err = self._auth(max_age=self.MAX_AGE_GUEST)
             if err:
                 c, b = _json_bytes({"error": err}, 401)
                 return self._send(c, b)
             c, b = _json_bytes({"ok": True, "menu": B.MENU, "brand": B.BRAND})
+            return self._send(c, b)
+
+        # ── Admin: stats ──
+        if path == "/api/admin/stats":
+            user, err = self._auth(max_age=self.MAX_AGE_ADMIN)
+            if err:
+                c, b = _json_bytes({"error": err}, 401)
+                return self._send(c, b)
+            role, ferr = self._require_role(user, "owner", "admin")
+            if ferr:
+                c, b = _json_bytes({"error": ferr[0]}, ferr[1])
+                return self._send(c, b)
+            s = B.stats()
+            # strip heavy top list detail for wire size; keep levels
+            c, b = _json_bytes({
+                "ok": True,
+                "role": role,
+                "stats": {
+                    "guests": s["guests"],
+                    "active30": s["active30"],
+                    "visits": s["visits"],
+                    "revenue": s["revenue"],
+                    "turnover": s.get("turnover", 0),
+                    "avg": s["avg"],
+                    "liability": s["liability"],
+                    "given": s["given"],
+                    "used": s["used"],
+                    "today_visits": s["today_visits"],
+                    "today_revenue": s["today_revenue"],
+                    "levels": [{"name": n, "count": c} for n, c in s.get("levels", [])],
+                    "top": [{"name": n, "qty": q} for n, q in (s.get("top") or [])[:8]],
+                },
+                "bot": {
+                    "name": getattr(B, "BOT_NAME", ""),
+                    "sheets": bool(B.SHEETS_URL),
+                    "webapp": bool(B.WEBAPP_URL),
+                    "maintenance": bool(getattr(B, "MAINTENANCE", False)),
+                },
+            })
+            return self._send(c, b)
+
+        # ── Admin: list roles ──
+        if path == "/api/admin/roles":
+            user, err = self._auth(max_age=self.MAX_AGE_ADMIN)
+            if err:
+                c, b = _json_bytes({"error": err}, 401)
+                return self._send(c, b)
+            role, ferr = self._require_role(user, "owner", "admin")
+            if ferr:
+                c, b = _json_bytes({"error": ferr[0]}, ferr[1])
+                return self._send(c, b)
+            rows = B.list_roles()
+            # Director sees all but owner can manage owner roles
+            c, b = _json_bytes({
+                "ok": True,
+                "role": role,
+                "can_manage_owners": role == "owner",
+                "can_grant": ["staff", "admin"] + (["owner"] if role == "owner" else []),
+                "items": [role_public(r) for r in rows],
+            })
             return self._send(c, b)
 
         c, b = _json_bytes({"error": "not found"}, 404)
@@ -267,11 +414,17 @@ class Handler(BaseHTTPRequestHandler):
         if getattr(B, "MAINTENANCE", False):
             c, b = _json_bytes({"error": "maintenance"}, 503)
             return self._send(c, b)
+
+        ip = _client_ip(self)
+        if not _rate_ok(ip, mutate=True):
+            c, b = _json_bytes({"error": "too many requests"}, 429)
+            return self._send(c, b)
+
         path = urllib.parse.urlparse(self.path).path
         body = self._read_json()
 
         if path == "/api/register":
-            user, err = self._auth()
+            user, err = self._auth(max_age=self.MAX_AGE_GUEST)
             if err:
                 c, b = _json_bytes({"error": err}, 401)
                 return self._send(c, b)
@@ -281,10 +434,9 @@ class Handler(BaseHTTPRequestHandler):
             phone = (body.get("phone") or g.get("phone") or "").strip()[:32]
             gender = (body.get("gender") or "").strip()[:16]
             bday = (body.get("bday") or g.get("bday") or "").strip()[:16]
-            kw = {}
-            if name:
-                kw["name"] = name
-            # optional columns — update via raw SQL for new fields
+            # sanitize phone: digits + optional leading +
+            if phone:
+                phone = re.sub(r"[^\d+]", "", phone)[:32]
             with B._lock:
                 sets, args = [], []
                 if name:
@@ -308,14 +460,15 @@ class Handler(BaseHTTPRequestHandler):
                             f"UPDATE guests SET {','.join(sets)} WHERE id=?", args)
                         B.conn().commit()
                     except Exception as e:
-                        c, b = _json_bytes({"error": str(e)}, 500)
+                        _log("register err", repr(e))
+                        c, b = _json_bytes({"error": "save failed"}, 500)
                         return self._send(c, b)
             g2 = B.get(g["id"])
             c, b = _json_bytes({"ok": True, "guest": guest_public(g2)})
             return self._send(c, b)
 
         if path == "/api/staff/guest":
-            user, err = self._auth(max_age=3600)
+            user, err = self._auth(max_age=self.MAX_AGE_STAFF)
             if err:
                 c, b = _json_bytes({"error": err}, 401)
                 return self._send(c, b)
@@ -323,22 +476,21 @@ class Handler(BaseHTTPRequestHandler):
                 c, b = _json_bytes({"error": "forbidden"}, 403)
                 return self._send(c, b)
             card = re.sub(r"\D", "", str(body.get("card") or body.get("q") or ""))
-            # extract 6 digits if longer payload
             m = re.search(r"(\d{6})", card)
             if m:
                 card = m.group(1)
             g = B.get_by_card(card) if card else None
             if not g and body.get("q"):
-                found = B.find(str(body["q"]), 5)
+                found = B.find(str(body["q"])[:64], 5)
                 g = found[0] if found else None
             if not g:
                 c, b = _json_bytes({"error": "Гость не найден"}, 404)
                 return self._send(c, b)
-            c, b = _json_bytes({"ok": True, "guest": guest_public(g)})
+            c, b = _json_bytes({"ok": True, "guest": guest_public(g, staff_view=True)})
             return self._send(c, b)
 
         if path == "/api/staff/preview":
-            user, err = self._auth(max_age=3600)
+            user, err = self._auth(max_age=self.MAX_AGE_STAFF)
             if err:
                 c, b = _json_bytes({"error": err}, 401)
                 return self._send(c, b)
@@ -353,7 +505,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(c, b)
 
         if path == "/api/staff/checkout":
-            user, err = self._auth(max_age=3600)
+            user, err = self._auth(max_age=self.MAX_AGE_STAFF)
             if err:
                 c, b = _json_bytes({"error": err}, 401)
                 return self._send(c, b)
@@ -362,17 +514,22 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(c, b)
             idk = (self.headers.get("Idempotency-Key")
                    or body.get("idempotency_key") or "")
-            if not idk:
+            if not idk or len(str(idk)) > 128:
                 c, b = _json_bytes({"error": "Idempotency-Key required",
                                     "code": "missing_idempotency_key"}, 400)
                 return self._send(c, b)
+            total = int(body.get("total") or 0)
+            use_pts = int(body.get("use_pts") or 0)
+            if total < 0 or total > 5_000_000 or use_pts < 0 or use_pts > 5_000_000:
+                c, b = _json_bytes({"error": "invalid amounts"}, 400)
+                return self._send(c, b)
             r = B.checkout(
                 int(body.get("gid") or 0),
-                int(body.get("total") or 0),
-                int(body.get("use_pts") or 0),
-                str(body.get("items") or ""),
+                total,
+                use_pts,
+                str(body.get("items") or "")[:500],
                 f"оф. {user['id']}",
-                idempotency_key=idk,
+                idempotency_key=str(idk)[:128],
                 hookah=bool(body.get("hookah")),
                 redeem_hookah=bool(body.get("redeem_hookah")),
             )
@@ -380,22 +537,196 @@ class Handler(BaseHTTPRequestHandler):
                 c, b = _json_bytes(r, 409)
                 return self._send(c, b)
             if r.get("error"):
-                c, b = _json_bytes(r, 400)
+                c, b = _json_bytes({"error": r.get("error"), "code": r.get("code")}, 400)
                 return self._send(c, b)
-            # notify guest only on first apply
             if not r.get("replay") and r.get("guest"):
                 try:
                     B.notify_guest_visit(
                         r["guest"], r,
-                        int(body.get("total") or 0),
+                        total,
                         int(r.get("paid") or 0))
                 except Exception:
                     pass
-            # serialize guest for JSON
             out = dict(r)
             if out.get("guest"):
-                out["guest"] = guest_public(out["guest"])
+                out["guest"] = guest_public(out["guest"], staff_view=True)
             c, b = _json_bytes(out)
+            return self._send(c, b)
+
+        # ── Admin: grant role ──
+        if path == "/api/admin/roles/grant":
+            user, err = self._auth(max_age=self.MAX_AGE_ADMIN)
+            if err:
+                c, b = _json_bytes({"error": err}, 401)
+                return self._send(c, b)
+            my_role, ferr = self._require_role(user, "owner", "admin")
+            if ferr:
+                c, b = _json_bytes({"error": ferr[0]}, ferr[1])
+                return self._send(c, b)
+
+            want = (body.get("role") or "").strip().lower()
+            if want not in ("owner", "admin", "staff"):
+                c, b = _json_bytes({"error": "invalid role"}, 400)
+                return self._send(c, b)
+            # Director may only grant staff; owner can grant all
+            if my_role == "admin" and want != "staff":
+                c, b = _json_bytes({"error": "директор может выдавать только роль официанта"}, 403)
+                return self._send(c, b)
+            if my_role != "owner" and want == "owner":
+                c, b = _json_bytes({"error": "только владелец выдаёт владельцев"}, 403)
+                return self._send(c, b)
+
+            username = B.norm_username(body.get("username") or "")
+            tg_id = 0
+            raw_id = body.get("tg_id")
+            if raw_id is not None and str(raw_id).strip():
+                try:
+                    tg_id = int(str(raw_id).strip())
+                except Exception:
+                    c, b = _json_bytes({"error": "bad tg_id"}, 400)
+                    return self._send(c, b)
+            if not username and not tg_id:
+                c, b = _json_bytes({"error": "укажите @username или Telegram ID"}, 400)
+                return self._send(c, b)
+
+            note = (body.get("note") or "из Mini App")[:80]
+            by = f"{my_role} {user['id']}"
+            try:
+                row = B.grant(want, username=username, tg_id=tg_id, note=note, by=by)
+            except Exception as e:
+                _log("grant err", repr(e))
+                c, b = _json_bytes({"error": "grant failed"}, 500)
+                return self._send(c, b)
+            if not row:
+                c, b = _json_bytes({"error": "не удалось выдать роль"}, 400)
+                return self._send(c, b)
+            # notify if linked
+            if row.get("tg_id"):
+                try:
+                    B._notify_role(int(row["tg_id"]), want)
+                except Exception:
+                    pass
+            _log(f"ROLE GRANT {want} by {by} -> @{username or tg_id}")
+            c, b = _json_bytes({"ok": True, "item": role_public(row)})
+            return self._send(c, b)
+
+        # ── Admin: revoke role ──
+        if path == "/api/admin/roles/revoke":
+            user, err = self._auth(max_age=self.MAX_AGE_ADMIN)
+            if err:
+                c, b = _json_bytes({"error": err}, 401)
+                return self._send(c, b)
+            my_role, ferr = self._require_role(user, "owner", "admin")
+            if ferr:
+                c, b = _json_bytes({"error": ferr[0]}, ferr[1])
+                return self._send(c, b)
+
+            try:
+                rid = int(body.get("id") or 0)
+            except Exception:
+                rid = 0
+            if not rid:
+                c, b = _json_bytes({"error": "id required"}, 400)
+                return self._send(c, b)
+
+            rows = [r for r in B.list_roles() if r["id"] == rid]
+            if not rows:
+                c, b = _json_bytes({"error": "роль не найдена"}, 404)
+                return self._send(c, b)
+            target = rows[0]
+
+            # Director cannot touch owner/admin roles
+            if my_role == "admin" and target["role"] in ("owner", "admin"):
+                c, b = _json_bytes({"error": "директор снимает только официантов"}, 403)
+                return self._send(c, b)
+            # cannot revoke self if last owner
+            if target.get("tg_id") and int(target["tg_id"]) == int(user["id"]) and target["role"] == "owner":
+                if B.count_owners() <= 1:
+                    c, b = _json_bytes({"error": "нельзя снять единственного владельца"}, 400)
+                    return self._send(c, b)
+
+            by = f"{my_role} {user['id']}"
+            ok, why = B.revoke(rid, by=by)
+            if not ok:
+                c, b = _json_bytes({"error": why}, 400)
+                return self._send(c, b)
+            _log(f"ROLE REVOKE id={rid} by {by}: {why}")
+            c, b = _json_bytes({"ok": True, "revoked": why})
+            return self._send(c, b)
+
+        # ── Admin: link pending usernames ──
+        if path == "/api/admin/roles/link":
+            user, err = self._auth(max_age=self.MAX_AGE_ADMIN)
+            if err:
+                c, b = _json_bytes({"error": err}, 401)
+                return self._send(c, b)
+            my_role, ferr = self._require_role(user, "owner", "admin")
+            if ferr:
+                c, b = _json_bytes({"error": ferr[0]}, ferr[1])
+                return self._send(c, b)
+            linked = B.link_pending_roles()
+            for r in linked:
+                try:
+                    B._notify_role(r["tg_id"], r["role"])
+                except Exception:
+                    pass
+            c, b = _json_bytes({
+                "ok": True,
+                "linked": len(linked),
+                "items": [role_public(r) for r in linked],
+            })
+            return self._send(c, b)
+
+        # ── Admin: broadcast ──
+        if path == "/api/admin/broadcast":
+            user, err = self._auth(max_age=self.MAX_AGE_ADMIN)
+            if err:
+                c, b = _json_bytes({"error": err}, 401)
+                return self._send(c, b)
+            my_role, ferr = self._require_role(user, "owner", "admin")
+            if ferr:
+                c, b = _json_bytes({"error": ferr[0]}, ferr[1])
+                return self._send(c, b)
+            text = (body.get("text") or "").strip()
+            if not text or len(text) < 2:
+                c, b = _json_bytes({"error": "пустой текст"}, 400)
+                return self._send(c, b)
+            if len(text) > 3500:
+                c, b = _json_bytes({"error": "слишком длинно (макс 3500)"}, 400)
+                return self._send(c, b)
+            # run async so HTTP doesn't hang
+            admin_id = int(user["id"])
+            _log(f"BROADCAST by {my_role} {admin_id}, len={len(text)}")
+
+            def _run():
+                try:
+                    B.do_broadcast(admin_id, text)
+                except Exception as e:
+                    _log("broadcast err", repr(e))
+
+            threading.Thread(target=_run, name="broadcast", daemon=True).start()
+            c, b = _json_bytes({"ok": True, "queued": True, "message": "Рассылка запущена"})
+            return self._send(c, b)
+
+        # ── Admin: search guest ──
+        if path == "/api/admin/guest":
+            user, err = self._auth(max_age=self.MAX_AGE_ADMIN)
+            if err:
+                c, b = _json_bytes({"error": err}, 401)
+                return self._send(c, b)
+            my_role, ferr = self._require_role(user, "owner", "admin")
+            if ferr:
+                c, b = _json_bytes({"error": ferr[0]}, ferr[1])
+                return self._send(c, b)
+            q = str(body.get("q") or "").strip()[:64]
+            if not q:
+                c, b = _json_bytes({"error": "пустой запрос"}, 400)
+                return self._send(c, b)
+            found = B.find(q, 10)
+            c, b = _json_bytes({
+                "ok": True,
+                "items": [guest_public(g, staff_view=True) for g in found],
+            })
             return self._send(c, b)
 
         c, b = _json_bytes({"error": "not found"}, 404)
@@ -406,7 +737,7 @@ class Handler(BaseHTTPRequestHandler):
         dist = os.path.join(root, "dist")
         base = dist if os.path.isdir(dist) else root
         if path.startswith("/app"):
-            rel = path[len("/app"):]  # /app or /app/foo
+            rel = path[len("/app"):]
         else:
             rel = path
         if not rel or rel == "/":
@@ -414,11 +745,10 @@ class Handler(BaseHTTPRequestHandler):
         rel = rel.lstrip("/").replace("..", "")
         fpath = os.path.join(base, rel)
         if not os.path.isfile(fpath):
-            # SPA fallback only for navigations, not missing assets
             if rel.endswith((".html", "")) or "." not in rel:
                 fpath = os.path.join(base, "index.html")
         if not os.path.isfile(fpath):
-            c, b = _json_bytes({"error": "not found", "path": rel}, 404)
+            c, b = _json_bytes({"error": "not found"}, 404)
             return self._send(c, b)
         ctype = mimetypes.guess_type(fpath)[0] or "application/octet-stream"
         if rel.endswith(".js"):
@@ -427,9 +757,29 @@ class Handler(BaseHTTPRequestHandler):
             ctype = "text/css; charset=utf-8"
         elif rel.endswith(".html"):
             ctype = "text/html; charset=utf-8"
+        elif rel.endswith((".jpg", ".jpeg")):
+            ctype = "image/jpeg"
         with open(fpath, "rb") as f:
             data = f.read()
-        self._send(200, data, ctype)
+        # cache static assets briefly (bg image)
+        self.send_response(200)
+        self._cors()
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        if rel.endswith((".jpg", ".jpeg", ".png", ".webp", ".svg", ".woff2")):
+            self.send_header("Cache-Control", "public, max-age=86400")
+        else:
+            self.send_header("Cache-Control", "no-store")
+        if ctype.startswith("text/html"):
+            self.send_header(
+                "Content-Security-Policy",
+                "default-src 'self'; script-src 'self' https://telegram.org; "
+                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                "font-src 'self' https://fonts.gstatic.com; "
+                "img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'self'",
+            )
+        self.end_headers()
+        self.wfile.write(data)
 
 
 def start_background(host, port):

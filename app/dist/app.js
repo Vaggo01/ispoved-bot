@@ -1,18 +1,16 @@
-/* Исповедь Mini App — guest + staff */
+/* Исповедь Mini App — guest + staff + director */
 (function () {
   const tg = window.Telegram && window.Telegram.WebApp;
   if (tg) {
     tg.ready();
     tg.expand();
-    try { tg.setHeaderColor("#0c0c0e"); tg.setBackgroundColor("#0c0c0e"); } catch (_) {}
+    try { tg.setHeaderColor("#0a090c"); tg.setBackgroundColor("#0a090c"); } catch (_) {}
   }
 
-  // API: ?api= | config.js | same origin on Bothost / any host serving /api
   const params = new URLSearchParams(location.search);
   function resolveApiBase() {
     if (params.get("api")) return params.get("api").replace(/\/$/, "");
     if (window.ISPOVED_API) return String(window.ISPOVED_API).replace(/\/$/, "");
-    // same host as Mini App (https://ispoved.bothost.tech/app/ → origin)
     return "";
   }
   const API_BASE = resolveApiBase();
@@ -68,6 +66,8 @@
     guest: null,
     role: "guest",
     staffGuest: null,
+    canGrant: ["staff"],
+    canManageOwners: false,
   };
 
   function initData() {
@@ -105,14 +105,9 @@
     document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
     const el = $(viewId);
     if (el) el.classList.add("active");
-    document.querySelectorAll(".tab").forEach((t) => {
-      t.classList.toggle("active", t.dataset.go === viewId.replace("view-", ""));
-    });
-    // map home/promos/profile
-    const map = { home: "home", promos: "promos", profile: "profile", staff: "staff" };
     const key = viewId.replace("view-", "");
     document.querySelectorAll(".tab").forEach((t) => {
-      t.classList.toggle("active", t.dataset.go === key || (key === "home" && t.dataset.go === "home"));
+      t.classList.toggle("active", t.dataset.go === key);
     });
     if (tg && tg.HapticFeedback) {
       try { tg.HapticFeedback.selectionChanged(); } catch (_) {}
@@ -206,8 +201,8 @@
         return (
           '<div class="item" style="animation-delay:' + i * 0.03 + 's">' +
           "<div><div>" + title + "</div><div class=\"muted\">" + sub +
-          (v.why ? " · " + v.why : "") + "</div></div>" +
-          "<div>" + right + "</div></div>"
+          (v.why ? " · " + escapeHtml(v.why) : "") + "</div></div>" +
+          "<div class=\"amt\">" + right + "</div></div>"
         );
       }).join("");
       recent.innerHTML = items.slice(0, 3).map((v, i) => {
@@ -215,7 +210,7 @@
         return (
           '<div class="item" style="animation-delay:' + i * 0.03 + 's">' +
           "<div><div>" + title + "</div><div class=\"muted\">" + (v.at || "").slice(0, 16) +
-          "</div></div><div>" + (v.earned ? "+" + pts(v.earned) : "") + "</div></div>"
+          "</div></div><div class=\"amt\">" + (v.earned ? "+" + pts(v.earned) : "") + "</div></div>"
         );
       }).join("");
       full.innerHTML = html;
@@ -269,6 +264,10 @@
     $("qr-overlay").classList.add("hidden");
   }
 
+  function isDirector() {
+    return state.role === "admin" || state.role === "owner";
+  }
+
   function go(name) {
     const map = {
       home: "view-home",
@@ -277,13 +276,216 @@
       promos: "view-promos",
       profile: "view-profile",
       staff: "view-staff",
+      admin: "view-admin",
       reg: "view-reg",
     };
     if (name === "history") loadHistory();
     if (name === "menu") loadMenu();
+    if (name === "admin") {
+      if (!isDirector()) return;
+      loadAdminStats();
+    }
     show(map[name] || "view-home");
-    if (["home", "promos", "profile", "staff"].includes(name)) {
+    if (["home", "promos", "profile", "staff", "admin"].includes(name)) {
       $("tabs").classList.remove("hidden");
+    }
+  }
+
+  // ── Admin ──────────────────────────────────────────────
+  function showAdminPanel(name) {
+    document.querySelectorAll(".admin-panel").forEach((p) => p.classList.add("hidden"));
+    document.querySelectorAll(".admin-tab").forEach((t) => {
+      t.classList.toggle("active", t.dataset.admin === name);
+    });
+    const el = $("admin-panel-" + name);
+    if (el) el.classList.remove("hidden");
+    if (name === "roles") loadRoles();
+    if (name === "stats") loadAdminStats();
+    if (name === "bot") loadAdminStats();
+  }
+
+  async function loadAdminStats() {
+    try {
+      const data = await api("/api/admin/stats");
+      const s = data.stats || {};
+      $("st-today-v").textContent = pts(s.today_visits);
+      $("st-today-r").textContent = money(s.today_revenue);
+      $("st-guests").textContent = pts(s.guests);
+      $("st-active").textContent = pts(s.active30);
+      $("st-revenue").textContent = money(s.revenue);
+      $("st-liab").textContent = pts(s.liability);
+
+      const levels = s.levels || [];
+      const maxL = Math.max(1, ...levels.map((l) => l.count || 0));
+      $("st-levels").innerHTML = levels.map((l) => {
+        const w = Math.round(((l.count || 0) / maxL) * 100);
+        return (
+          '<div class="level-row"><span class="ln">' + escapeHtml(l.name) +
+          '</span><div class="lb"><div class="lf" style="width:' + w +
+          '%"></div></div><span class="lc">' + (l.count || 0) + "</span></div>"
+        );
+      }).join("") || '<div class="muted">Нет данных</div>';
+
+      const top = s.top || [];
+      $("st-top").innerHTML = top.length
+        ? top.map((t, i) =>
+            '<div class="item" style="animation-delay:' + i * 0.03 + 's">' +
+            "<div>" + escapeHtml(t.name) + "</div><div class=\"amt\">×" + t.qty + "</div></div>"
+          ).join("")
+        : '<div class="empty-hint" style="padding:12px">Пока пусто</div>';
+
+      const bot = data.bot || {};
+      $("bot-name").textContent = bot.name ? "@" + bot.name : "—";
+      $("bot-webapp").textContent = bot.webapp ? "вкл" : "выкл";
+      $("bot-sheets").textContent = bot.sheets ? "подключены" : "нет";
+      $("bot-maint").textContent = bot.maintenance ? "обслуживание" : "работа";
+
+      const labels = { owner: "Владелец", admin: "Директор" };
+      $("admin-role-pill").textContent = labels[data.role] || data.role || state.role;
+    } catch (e) {
+      console.warn("stats", e);
+      if (e.status === 403) {
+        $("st-guests").textContent = "!";
+        $("level-next") && ($("level-next").textContent = e.message);
+      }
+    }
+  }
+
+  async function loadRoles() {
+    try {
+      const data = await api("/api/admin/roles");
+      state.canGrant = data.can_grant || ["staff"];
+      state.canManageOwners = !!data.can_manage_owners;
+
+      const sel = $("role-want");
+      const allowed = new Set(state.canGrant);
+      Array.from(sel.options).forEach((opt) => {
+        opt.disabled = !allowed.has(opt.value);
+        opt.hidden = !allowed.has(opt.value);
+      });
+      // pick first allowed
+      const first = state.canGrant[0] || "staff";
+      if (!allowed.has(sel.value)) sel.value = first;
+
+      $("roles-hint").textContent = state.canManageOwners
+        ? "Владелец: выдача всех ролей, снятие любой (кроме последнего владельца)."
+        : "Директор: выдача и снятие только официантов.";
+
+      const icons = { owner: "👑", admin: "🎩", staff: "🧑‍🍳" };
+      const items = data.items || [];
+      $("roles-list").innerHTML = items.length
+        ? items.map((r, i) => {
+            const who = r.username
+              ? "@" + r.username
+              : r.tg_id
+                ? "id " + r.tg_id
+                : "—";
+            const canRevoke =
+              (state.role === "owner") ||
+              (state.role === "admin" && r.role === "staff");
+            return (
+              '<div class="role-card" style="animation-delay:' + i * 0.04 + 's">' +
+              '<div class="role-badge">' + (icons[r.role] || "•") + "</div>" +
+              '<div class="ri"><div class="rt">' + escapeHtml(r.role_name || r.role) +
+              (r.pending ? '<span class="pending-tag">ждёт /start</span>' : "") +
+              '</div><div class="rs">' + escapeHtml(who) +
+              (r.at ? " · " + String(r.at).slice(0, 10) : "") +
+              "</div></div>" +
+              (canRevoke
+                ? '<button type="button" class="btn danger" data-revoke="' + r.id + '">Снять</button>'
+                : "") +
+              "</div>"
+            );
+          }).join("")
+        : '<div class="empty-hint">Пока никого нет</div>';
+
+      $("roles-list").querySelectorAll("[data-revoke]").forEach((btn) => {
+        btn.addEventListener("click", () => revokeRole(btn.dataset.revoke));
+      });
+    } catch (e) {
+      $("roles-list").innerHTML =
+        '<div class="empty-hint">' + escapeHtml(e.message || "Ошибка") + "</div>";
+    }
+  }
+
+  async function grantRole() {
+    const role = $("role-want").value;
+    const who = $("role-who").value.trim();
+    if (!who) {
+      alert("Укажите @username или Telegram ID");
+      return;
+    }
+    const body = { role };
+    if (/^\d{5,15}$/.test(who)) body.tg_id = parseInt(who, 10);
+    else body.username = who.replace(/^@/, "");
+
+    try {
+      await api("/api/admin/roles/grant", { method: "POST", body });
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+      $("role-who").value = "";
+      loadRoles();
+    } catch (e) {
+      alert(e.message || "Ошибка");
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("error");
+    }
+  }
+
+  async function revokeRole(id) {
+    if (!confirm("Снять роль?")) return;
+    try {
+      await api("/api/admin/roles/revoke", { method: "POST", body: { id: parseInt(id, 10) } });
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+      loadRoles();
+    } catch (e) {
+      alert(e.message || "Ошибка");
+    }
+  }
+
+  async function linkRoles() {
+    try {
+      const data = await api("/api/admin/roles/link", { method: "POST", body: {} });
+      alert("Связано: " + (data.linked || 0));
+      loadRoles();
+    } catch (e) {
+      alert(e.message || "Ошибка");
+    }
+  }
+
+  async function doBroadcast() {
+    const text = $("broadcast-text").value.trim();
+    if (!text) {
+      alert("Введите текст");
+      return;
+    }
+    if (!confirm("Отправить рассылку всем гостям?")) return;
+    try {
+      const data = await api("/api/admin/broadcast", { method: "POST", body: { text } });
+      $("broadcast-result").textContent = data.message || "Запущено";
+      $("broadcast-text").value = "";
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+    } catch (e) {
+      $("broadcast-result").textContent = "Ошибка: " + (e.message || e);
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("error");
+    }
+  }
+
+  async function adminFindGuest() {
+    const q = $("admin-guest-q").value.trim();
+    if (!q) return;
+    try {
+      const data = await api("/api/admin/guest", { method: "POST", body: { q } });
+      const items = data.items || [];
+      $("admin-guest-list").innerHTML = items.length
+        ? items.map((g) =>
+            '<div class="item"><div><div><b>' + escapeHtml(g.name || "Гость") +
+            "</b></div><div class=\"muted\">" + escapeHtml(g.card_pretty || g.card) +
+            " · " + pts(g.bonus) + " бон. · " + escapeHtml(g.level?.name || "") +
+            "</div></div></div>"
+          ).join("")
+        : '<div class="empty-hint">Не найдено</div>';
+    } catch (e) {
+      $("admin-guest-list").innerHTML =
+        '<div class="empty-hint">' + escapeHtml(e.message || "Ошибка") + "</div>";
     }
   }
 
@@ -291,7 +493,6 @@
     show("view-boot");
     const hasTg = !!(initData() || (tg && tg.initDataUnsafe && tg.initDataUnsafe.user));
 
-    // Outside Telegram: show shell + status, no fake panic
     if (!hasTg && !params.get("demo")) {
       try {
         const h = await api("/api/health");
@@ -330,6 +531,11 @@
       $("tabs").classList.remove("hidden");
       if (state.role === "staff" || state.role === "admin" || state.role === "owner") {
         $("tab-staff").classList.remove("hidden");
+      }
+      if (state.role === "admin" || state.role === "owner") {
+        $("tab-admin").classList.remove("hidden");
+        const labels = { owner: "Владелец", admin: "Директор" };
+        $("admin-role-pill").textContent = labels[state.role] || state.role;
       }
       const incomplete = me.guest && !me.guest.profile_complete && !me.guest.phone;
       if (incomplete && !(me.guest.name && me.guest.name.length > 1)) {
@@ -457,7 +663,7 @@
         if (m) {
           $("staff-q").value = m[1];
           findGuest();
-          return true; // close
+          return true;
         }
         return false;
       });
@@ -511,6 +717,16 @@
   $("btn-find").addEventListener("click", findGuest);
   $("btn-checkout").addEventListener("click", doCheckout);
   $("btn-scan").addEventListener("click", tryScan);
+
+  // Admin events
+  document.querySelectorAll("[data-admin]").forEach((el) => {
+    el.addEventListener("click", () => showAdminPanel(el.dataset.admin));
+  });
+  $("btn-refresh-stats").addEventListener("click", loadAdminStats);
+  $("btn-role-grant").addEventListener("click", grantRole);
+  $("btn-role-link").addEventListener("click", linkRoles);
+  $("btn-broadcast").addEventListener("click", doBroadcast);
+  $("btn-admin-find").addEventListener("click", adminFindGuest);
 
   boot();
 })();

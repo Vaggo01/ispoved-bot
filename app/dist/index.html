@@ -10,6 +10,9 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <div class="bg-photo" aria-hidden="true"></div>
+  <div class="bg-veil" aria-hidden="true"></div>
+
   <!-- Shared SVG sprite -->
   <svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
     <symbol id="i-star" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2.5l2.9 6.1 6.6.9-4.8 4.6 1.2 6.5L12 17.8 6.1 20.6l1.2-6.5L2.5 9.5l6.6-.9L12 2.5z"/></symbol>
@@ -29,13 +32,17 @@
     <symbol id="i-chevron" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M9 6l6 6-6 6"/></symbol>
     <symbol id="i-back" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M15 18l-6-6 6-6"/></symbol>
     <symbol id="i-staff" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/><path fill="none" stroke="currentColor" stroke-width="1.5" d="M16 7h4M18 5v4"/></symbol>
+    <symbol id="i-crown" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M3 18h18l-1.5-10-4.5 4L12 6l-3 6-4.5-4L3 18z"/><path fill="none" stroke="currentColor" stroke-width="1.5" d="M5 18h14v2H5z"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" d="M4 19V5M4 19h16"/><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" d="M8 16v-5M12 16V8M16 16v-3"/></symbol>
+    <symbol id="i-megaphone" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M3 11v2a2 2 0 0 0 2 2h1l6 4V5L6 9H5a2 2 0 0 0-2 2z"/><path fill="none" stroke="currentColor" stroke-width="1.5" d="M15 9.5a4 4 0 0 1 0 5M17.5 7a7 7 0 0 1 0 10"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4" fill="none" stroke="currentColor" stroke-width="1.7"/><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" d="M11.5 12.5L20 4m0 0h-3m3 0v3"/></symbol>
     <symbol id="i-logo" viewBox="0 0 64 64"><circle cx="32" cy="32" r="28" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.5"/><circle cx="32" cy="32" r="18" fill="none" stroke="currentColor" stroke-width="0.9" opacity="0.4"/><path fill="currentColor" d="M32 14l4.5 10.2 11 .9-8.3 7.4 2.6 10.7L32 37.5l-9.8 5.7 2.6-10.7-8.3-7.4 11-.9L32 14z" opacity="0.9"/></symbol>
   </svg>
 
   <div id="app">
     <!-- Boot -->
     <section id="view-boot" class="view active">
-      <div class="boot-mark">
+      <div class="boot-mark anim-scale">
         <svg width="40" height="40" style="color:var(--gold2)"><use href="#i-logo"/></svg>
       </div>
       <div class="boot-logo">ИСПОВЕДЬ</div>
@@ -48,7 +55,7 @@
       <div class="hero-bg">
         <svg class="hero-ornament" viewBox="0 0 64 64" aria-hidden="true"><use href="#i-logo"/></svg>
       </div>
-      <div class="reg-sheet anim-up">
+      <div class="reg-sheet anim-up glass">
         <h1>Регистрация</h1>
         <p class="muted">Выпустите карту и получайте бонусы за каждый визит.</p>
         <label>Имя *</label>
@@ -78,7 +85,7 @@
         </button>
         <h2>СОПД</h2>
       </header>
-      <div class="pad sopd-text" id="sopd-body"></div>
+      <div class="pad sopd-text glass-card" id="sopd-body"></div>
       <div class="pad">
         <button type="button" class="btn primary block" id="btn-sopd-accept">Принимаю</button>
       </div>
@@ -91,22 +98,22 @@
           <div class="hello">Привет,</div>
           <div class="hello-name" id="hello-name">Гость</div>
         </div>
-        <button type="button" class="icon-btn" id="btn-qr" aria-label="QR-код">
+        <button type="button" class="icon-btn pulse-ring" id="btn-qr" aria-label="QR-код">
           <svg class="icon md"><use href="#i-qr"/></svg>
         </button>
       </header>
 
-      <div class="stamp-card anim-fade">
+      <div class="stamp-card anim-fade glass-card">
         <div class="stamp-label">ОТМЕТКИ</div>
         <div class="stamps" id="stamps"></div>
-        <div class="stamp-banner">Каждый 8-й кальян бесплатно!</div>
+        <div class="stamp-banner shimmer">Каждый 8-й кальян бесплатно!</div>
         <div class="free-count">
           <span class="num" id="free-count">0</span>
           <span class="lbl">бесплатных кальянов</span>
         </div>
       </div>
 
-      <div class="balance-card anim-fade delay-1">
+      <div class="balance-card anim-fade delay-1 glass-card">
         <div class="bal-main">
           <div class="bal-num" id="bonus">0</div>
           <div class="bal-lbl">бонусов</div>
@@ -167,7 +174,7 @@
         </button>
         <h2>Меню</h2>
       </header>
-      <div id="menu-list" class="pad"></div>
+      <div id="menu-list" class="pad glass-card" style="padding:12px 16px"></div>
     </section>
 
     <!-- Promos -->
@@ -179,12 +186,12 @@
         <h2>Акции</h2>
       </header>
       <div class="pad">
-        <article class="promo-card">
+        <article class="promo-card glass-card">
           <div class="promo-badge">Текущая</div>
           <h3>Каждый 8-й кальян бесплатно</h3>
           <p>Копите отметки за каждый кальян — после семи получите free. Плюс кэшбэк бонусами с каждого чека.</p>
         </article>
-        <article class="promo-card">
+        <article class="promo-card glass-card">
           <div class="promo-badge">Уровни</div>
           <h3>Кэшбэк растёт с вами</h3>
           <p>Гость 5% · Свой 7% · Резидент 10%. Бонусами можно оплатить до 30% счёта.</p>
@@ -246,8 +253,8 @@
         <label>Карта / поиск</label>
         <input id="staff-q" type="text" inputmode="numeric" placeholder="482951" />
         <button type="button" class="btn ghost block" id="btn-find">Найти</button>
-        <div id="staff-guest" class="staff-box hidden"></div>
-        <div id="staff-form" class="staff-box hidden">
+        <div id="staff-guest" class="staff-box glass-card hidden"></div>
+        <div id="staff-form" class="staff-box glass-card hidden">
           <label>Сумма чека ₽</label>
           <input id="staff-total" type="number" inputmode="numeric" min="0" />
           <label>Списать бонусов</label>
@@ -255,6 +262,113 @@
           <label class="check"><input type="checkbox" id="staff-hookah" /> Кальян (штамп +1)</label>
           <button type="button" class="btn primary block" id="btn-checkout">Провести</button>
           <pre id="staff-result" class="result"></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- Admin / Director panel -->
+    <section id="view-admin" class="view">
+      <header class="top">
+        <div>
+          <div class="hello">Панель</div>
+          <div class="hello-name" style="font-size:24px">Директор</div>
+        </div>
+        <div class="role-pill" id="admin-role-pill">—</div>
+      </header>
+
+      <!-- Sub-tabs -->
+      <div class="admin-tabs" id="admin-subtabs">
+        <button type="button" class="admin-tab active" data-admin="stats">
+          <svg class="icon sm"><use href="#i-chart"/></svg> Сводка
+        </button>
+        <button type="button" class="admin-tab" data-admin="roles">
+          <svg class="icon sm"><use href="#i-key"/></svg> Роли
+        </button>
+        <button type="button" class="admin-tab" data-admin="bot">
+          <svg class="icon sm"><use href="#i-megaphone"/></svg> Бот
+        </button>
+      </div>
+
+      <!-- Stats -->
+      <div id="admin-panel-stats" class="admin-panel">
+        <div class="stat-grid" id="stat-grid">
+          <div class="stat-card glass-card"><div class="stat-n" id="st-today-v">—</div><div class="stat-l">визитов сегодня</div></div>
+          <div class="stat-card glass-card"><div class="stat-n gold" id="st-today-r">—</div><div class="stat-l">выручка сегодня</div></div>
+          <div class="stat-card glass-card"><div class="stat-n" id="st-guests">—</div><div class="stat-l">гостей в базе</div></div>
+          <div class="stat-card glass-card"><div class="stat-n" id="st-active">—</div><div class="stat-l">активных 30 дн.</div></div>
+          <div class="stat-card glass-card"><div class="stat-n gold" id="st-revenue">—</div><div class="stat-l">выручка всего</div></div>
+          <div class="stat-card glass-card"><div class="stat-n" id="st-liab">—</div><div class="stat-l">бонусов на счетах</div></div>
+        </div>
+        <div class="glass-card pad-card" style="margin-top:12px">
+          <div class="sec-h" style="margin-bottom:8px">Уровни</div>
+          <div id="st-levels" class="levels-bars"></div>
+        </div>
+        <div class="glass-card pad-card" style="margin-top:12px">
+          <div class="sec-h" style="margin-bottom:8px">Топ позиций</div>
+          <div id="st-top" class="list muted">—</div>
+        </div>
+        <button type="button" class="btn ghost block" id="btn-refresh-stats" style="margin-top:12px">Обновить</button>
+      </div>
+
+      <!-- Roles -->
+      <div id="admin-panel-roles" class="admin-panel hidden">
+        <div class="glass-card pad-card">
+          <div class="sec-h">Выдать роль</div>
+          <p class="muted" style="margin:0 0 12px;font-size:12px" id="roles-hint">
+            Директор: официанты. Владелец: все роли.
+          </p>
+          <label>Роль</label>
+          <select id="role-want" class="select">
+            <option value="staff">Официант</option>
+            <option value="admin">Директор</option>
+            <option value="owner">Владелец</option>
+          </select>
+          <label>@username или Telegram ID</label>
+          <input id="role-who" type="text" placeholder="@waiter или 123456789" />
+          <button type="button" class="btn primary block" id="btn-role-grant">Выдать</button>
+          <button type="button" class="btn ghost block" id="btn-role-link">Связать ожидающие @ники</button>
+        </div>
+        <div class="sec-h" style="margin:16px 0 8px">Команда</div>
+        <div id="roles-list" class="roles-list"></div>
+      </div>
+
+      <!-- Bot control -->
+      <div id="admin-panel-bot" class="admin-panel hidden">
+        <div class="glass-card pad-card">
+          <div class="sec-h">Статус бота</div>
+          <div class="bot-status" id="bot-status">
+            <div class="bot-row"><span>Бот</span><b id="bot-name">—</b></div>
+            <div class="bot-row"><span>Mini App</span><b id="bot-webapp">—</b></div>
+            <div class="bot-row"><span>Google Sheets</span><b id="bot-sheets">—</b></div>
+            <div class="bot-row"><span>Режим</span><b id="bot-maint">—</b></div>
+          </div>
+        </div>
+        <div class="glass-card pad-card" style="margin-top:12px">
+          <div class="sec-h">Рассылка гостям</div>
+          <p class="muted" style="font-size:12px;margin:0 0 10px">Текст уйдёт всем, кто не отключил уведомления. Запускается в фоне.</p>
+          <textarea id="broadcast-text" class="textarea" rows="4" placeholder="Акция на выходные…" maxlength="3500"></textarea>
+          <button type="button" class="btn primary block" id="btn-broadcast">Отправить рассылку</button>
+          <pre id="broadcast-result" class="result"></pre>
+        </div>
+        <div class="glass-card pad-card" style="margin-top:12px">
+          <div class="sec-h">Поиск гостя</div>
+          <div class="row">
+            <input id="admin-guest-q" type="text" placeholder="карта, имя, @ник" />
+            <button type="button" class="btn ghost" id="btn-admin-find">Найти</button>
+          </div>
+          <div id="admin-guest-list" class="list" style="margin-top:10px"></div>
+        </div>
+        <div class="security-note glass-card pad-card" style="margin-top:12px">
+          <div class="sec-h" style="display:flex;align-items:center;gap:8px">
+            <svg class="icon sm" style="color:var(--gold)"><use href="#i-shield"/></svg>
+            Безопасность
+          </div>
+          <ul class="sec-list">
+            <li>Вход только через Telegram (подпись initData)</li>
+            <li>Роли и рассылка — только директор / владелец</li>
+            <li>Сессия админа: 30 мин · лимит запросов</li>
+            <li>Персональные данные не отдаются без авторизации</li>
+          </ul>
         </div>
       </div>
     </section>
@@ -276,6 +390,10 @@
       <button type="button" class="tab hidden" id="tab-staff" data-go="staff">
         <span class="tab-ico"><svg class="icon"><use href="#i-staff"/></svg></span>
         Зал
+      </button>
+      <button type="button" class="tab hidden" id="tab-admin" data-go="admin">
+        <span class="tab-ico"><svg class="icon"><use href="#i-crown"/></svg></span>
+        Директор
       </button>
     </nav>
   </div>
