@@ -265,9 +265,10 @@ WEBAPP_URL = _norm_webapp_url(
 )
 
 # ── HTTP API для Mini App (stdlib ThreadingHTTPServer) ────────
-# Bothost часто задаёт PORT; иначе API_PORT (8080). 0 = HTTP выкл.
+# Bothost: PORT из панели (прокси) ВАЖНЕЕ, чем API_PORT в env.
+# Иначе домен даёт 404/502, а бот слушает «не тот» порт.
 API_HOST = os.environ.get("API_HOST", "0.0.0.0")
-_port_raw = os.environ.get("API_PORT") or os.environ.get("PORT") or "8080"
+_port_raw = os.environ.get("PORT") or os.environ.get("API_PORT") or "8080"
 try:
     API_PORT = int(_port_raw)
 except ValueError:
@@ -3476,6 +3477,8 @@ def main():
         if API_PORT:
             web_api.start_background(API_HOST, API_PORT)
             log(f"HTTP API: {API_HOST}:{API_PORT}  ( /api/health , /app/ )")
+            log(f"  PORT env={os.environ.get('PORT')!r} API_PORT env={os.environ.get('API_PORT')!r}")
+            log(f"  Проверка снаружи: https://<домен>/api/health")
     except Exception as e:
         log("HTTP API не стартовал:", repr(e))
 
