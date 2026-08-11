@@ -1,0 +1,50 @@
+# Исповедь — бот + Mini App + HTTPS (Caddy)
+# Запуск: см. docs/VPS_ДЕШЕВО.md  или  ./install.sh
+
+services:
+  bot:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: ispoved-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Caddy ходит на 8080 внутри сети; снаружи только 80/443
+      PORT: "8080"
+      API_HOST: "0.0.0.0"
+      DB_PATH: "/app/data/ispoved.db"
+    volumes:
+      - ispoved_data:/app/data
+    expose:
+      - "8080"
+    networks:
+      - web
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: ispoved-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - bot
+    networks:
+      - web
+
+volumes:
+  ispoved_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  web:
+    driver: bridge
