@@ -257,12 +257,29 @@ def _norm_webapp_url(raw):
     path = path.rstrip("/") + "/"
     return "https://{0}{1}".format(host, path)
 
-# Bothost: WEBAPP_URL или DOMAIN (часто без https)
-WEBAPP_URL = _norm_webapp_url(
-    os.environ.get("WEBAPP_URL")
-    or os.environ.get("DOMAIN")
-    or ""
-)
+# Bothost: DOMAIN надёжнее user WEBAPP_URL (часто без .bothost.tech / без /app/)
+def _resolve_webapp_url():
+    domain = (os.environ.get("DOMAIN") or "").strip().replace(" ", "")
+    explicit = (os.environ.get("WEBAPP_URL") or "").strip().replace(" ", "")
+    # 1) DOMAIN с панели Bothost — главный источник правды
+    if domain:
+        host = domain
+        if host.startswith("https://"):
+            host = host[len("https://"):]
+        if host.startswith("http://"):
+            host = host[len("http://"):]
+        host = host.split("/")[0]
+        if host:
+            return "https://{0}/app/".format(host)
+    # 2) явный WEBAPP_URL
+    u = _norm_webapp_url(explicit)
+    if u and "bothost." in u and u.rstrip("/").endswith("app"):
+        return u if u.endswith("/") else u + "/"
+    if u and "sslip.io" in u:
+        return u if u.endswith("/") else (u + "/" if u.endswith("app") else u.rstrip("/") + "/app/")
+    return u or ""
+
+WEBAPP_URL = _resolve_webapp_url()
 
 # ── HTTP API для Mini App (stdlib ThreadingHTTPServer) ────────
 # Bothost: PORT из панели (прокси) ВАЖНЕЕ, чем API_PORT в env.
@@ -2042,6 +2059,7 @@ def send_card_qr(uid, g):
 
 
 def guest_menu(g):
+    """Inline-кнопки. WebApp URL всегда из WEBAPP_URL (нормализован при старте)."""
     rows = [
         [("QR-код для зала", "g:qr")],
         [("Моя карта", "g:card"), ("Бонусы и уровни", "g:bonus")],
@@ -2051,9 +2069,26 @@ def guest_menu(g):
         [("Написать директору", "g:dm")],
         [("Профиль", "g:prof")],
     ]
-    if WEBAPP_URL:
-        rows.insert(0, [("Открыть приложение", {"web_app": {"url": WEBAPP_URL}})])
+    url = (WEBAPP_URL or "").strip()
+    if url:
+        # inline web_app — тот же URL, что Menu Button
+        rows.insert(0, [("Открыть приложение", {"web_app": {"url": url}})])
     return kb(rows)
+
+
+def guest_reply_kb():
+    """Нижняя клавиатура с WebApp — в Telegram надёжнее inline в старых сообщениях."""
+    url = (WEBAPP_URL or "").strip()
+    if not url:
+        return None
+    return {
+        "keyboard": [[{
+            "text": "Открыть карту",
+            "web_app": {"url": url},
+        }]],
+        "resize_keyboard": True,
+        "is_persistent": True,
+    }
 
 def progress_bar(done, total, width=10):
     """Полоса прогресса символами: ▰▰▰▱▱▱▱▱▱▱"""
@@ -2130,7 +2165,7 @@ def guest_start(uid, msg):
             welcome += "Или пользуйтесь кнопками меню ниже."
         else:
             welcome += "Ниже — ваша карта и меню."
-        send(uid, welcome)
+        send(uid, welcome, guest_reply_kb())
         send_card_qr(uid, g)
         send(uid, guest_card_text(g), guest_menu(g))
         for a in admin_ids():
@@ -2138,9 +2173,13 @@ def guest_start(uid, msg):
                        f"Карта <code>{pretty_card(g['card'])}</code>")
     else:
         first = (g.get("name") or name or "друг").split()[0]
+        # reply kb + inline: старые сообщения с битым URL не используем — всегда /start
         send(uid,
              f"С возвращением, <b>{esc(first)}</b>\n\n" + guest_card_text(g),
              guest_menu(g))
+        rkb = guest_reply_kb()
+        if rkb:
+            send(uid, "👇 Быстрый вход в приложение:", rkb)
 
 def guest_cb(uid, data, cb, g):
     mid = cb["message"]["message_id"]
