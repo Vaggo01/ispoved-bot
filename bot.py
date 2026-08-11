@@ -184,6 +184,40 @@ def _load_token():
 
 TOKEN = _load_token()
 
+
+def _load_secret_file(names, env_keys=()):
+    """Secret from env or file under /app/data (Bothost volume)."""
+    for key in env_keys:
+        v = (os.environ.get(key) or "").strip()
+        if v:
+            return v
+    base = os.path.dirname(os.path.abspath(__file__))
+    paths = []
+    for name in names:
+        paths.extend([
+            os.path.join("/app/data", name),
+            os.path.join(base, name),
+            name,
+        ])
+    for path in paths:
+        try:
+            if os.path.isfile(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    v = f.read().strip().splitlines()[0].strip()
+                if v and not v.startswith("#"):
+                    return v
+        except Exception:
+            pass
+    return ""
+
+
+# Groq LLM for Mini App assistant (server-side only — never in frontend)
+GROQ_API_KEY = _load_secret_file(
+    ("groq_key.txt", "GROQ_API_KEY.txt"),
+    env_keys=("GROQ_API_KEY", "GROQ_KEY"),
+)
+GROQ_MODEL = (os.environ.get("GROQ_MODEL") or "llama-3.3-70b-versatile").strip()
+
 # ── Кто есть кто ──────────────────────────────────────────────
 # Здесь задаётся ТОЛЬКО первый владелец — чтобы было кому раздать
 # остальные роли. Дальше всё делается кнопками в боте, раздел «Роли».
@@ -3575,6 +3609,10 @@ def main():
         log(f"Mini App URL: {WEBAPP_URL}")
     else:
         log("Mini App: WEBAPP_URL не задан — кнопка WebApp скрыта")
+    if GROQ_API_KEY:
+        log(f"Нейропомощник: Groq OK · model={GROQ_MODEL}")
+    else:
+        log("Нейропомощник: нет GROQ_API_KEY / /app/data/groq_key.txt")
 
     # HTTP API + static Mini App (stdlib)
     try:

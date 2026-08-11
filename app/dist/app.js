@@ -68,6 +68,9 @@
     staffGuest: null,
     canGrant: ["staff"],
     canManageOwners: false,
+    assistant: true,
+    aiHistory: [],
+    aiBusy: false,
   };
 
   function initData() {
@@ -277,6 +280,7 @@
       profile: "view-profile",
       staff: "view-staff",
       admin: "view-admin",
+      assistant: "view-assistant",
       reg: "view-reg",
     };
     if (name === "history") loadHistory();
@@ -285,9 +289,72 @@
       if (!isDirector()) return;
       loadAdminStats();
     }
+    if (name === "assistant") ensureAiWelcome();
     show(map[name] || "view-home");
-    if (["home", "promos", "profile", "staff", "admin"].includes(name)) {
+    if (["home", "promos", "profile", "staff", "admin", "assistant"].includes(name)) {
       $("tabs").classList.remove("hidden");
+    }
+  }
+
+  // ── AI assistant ───────────────────────────────────────
+  function ensureAiWelcome() {
+    const box = $("ai-chat");
+    if (!box || box.dataset.ready) return;
+    box.dataset.ready = "1";
+    appendAiMsg(
+      "bot",
+      "Привет! Я помощник «Исповеди». Спросите про бонусы, 8-й кальян, адрес или вашу карту — или выберите подсказку сверху."
+    );
+  }
+
+  function appendAiMsg(role, text, cls) {
+    const box = $("ai-chat");
+    if (!box) return null;
+    const el = document.createElement("div");
+    el.className = "ai-msg " + role + (cls ? " " + cls : "");
+    el.textContent = text;
+    box.appendChild(el);
+    box.scrollTop = box.scrollHeight;
+    return el;
+  }
+
+  async function sendAi(text) {
+    text = (text || "").trim();
+    if (!text || state.aiBusy) return;
+    state.aiBusy = true;
+    const btn = $("btn-ai-send");
+    if (btn) btn.disabled = true;
+    $("ai-input").value = "";
+    appendAiMsg("user", text);
+    const typing = appendAiMsg("bot", "Думаю…", "typing");
+    try {
+      const data = await api("/api/assistant", {
+        method: "POST",
+        body: {
+          message: text,
+          history: state.aiHistory.slice(-8),
+        },
+      });
+      if (typing) typing.remove();
+      const reply = data.reply || "…";
+      appendAiMsg("bot", reply);
+      state.aiHistory.push({ role: "user", content: text });
+      state.aiHistory.push({ role: "assistant", content: reply });
+      if (state.aiHistory.length > 16) {
+        state.aiHistory = state.aiHistory.slice(-16);
+      }
+      if (tg && tg.HapticFeedback) {
+        try { tg.HapticFeedback.notificationOccurred("success"); } catch (_) {}
+      }
+    } catch (e) {
+      if (typing) typing.remove();
+      appendAiMsg("bot", "Не смог ответить: " + (e.message || "ошибка"));
+      if (tg && tg.HapticFeedback) {
+        try { tg.HapticFeedback.notificationOccurred("error"); } catch (_) {}
+      }
+    } finally {
+      state.aiBusy = false;
+      if (btn) btn.disabled = false;
     }
   }
 
@@ -527,6 +594,7 @@
       const me = await api("/api/me");
       state.me = me;
       state.role = me.role || "guest";
+      state.assistant = me.assistant !== false;
       renderGuest(me.guest);
       $("tabs").classList.remove("hidden");
       if (state.role === "staff" || state.role === "admin" || state.role === "owner") {
@@ -727,6 +795,18 @@
   $("btn-role-link").addEventListener("click", linkRoles);
   $("btn-broadcast").addEventListener("click", doBroadcast);
   $("btn-admin-find").addEventListener("click", adminFindGuest);
+
+  // AI
+  $("btn-ai-send").addEventListener("click", () => sendAi($("ai-input").value));
+  $("ai-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      sendAi($("ai-input").value);
+    }
+  });
+  document.querySelectorAll("#ai-chips .chip").forEach((chip) => {
+    chip.addEventListener("click", () => sendAi(chip.dataset.q || chip.textContent));
+  });
 
   boot();
 })();

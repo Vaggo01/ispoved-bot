@@ -7,3 +7,9 @@ bot.log
 setup.json
 __pycache__/
 *.pyc
+bot_token.txt
+groq_key.txt
+GROQ_API_KEY.txt
+*.key
+.env
+.env.*

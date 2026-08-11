@@ -36,6 +36,8 @@
     <symbol id="i-chart" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" d="M4 19V5M4 19h16"/><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" d="M8 16v-5M12 16V8M16 16v-3"/></symbol>
     <symbol id="i-megaphone" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M3 11v2a2 2 0 0 0 2 2h1l6 4V5L6 9H5a2 2 0 0 0-2 2z"/><path fill="none" stroke="currentColor" stroke-width="1.5" d="M15 9.5a4 4 0 0 1 0 5M17.5 7a7 7 0 0 1 0 10"/></symbol>
     <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4" fill="none" stroke="currentColor" stroke-width="1.7"/><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" d="M11.5 12.5L20 4m0 0h-3m3 0v3"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/><circle cx="12" cy="12" r="3.5" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></symbol>
     <symbol id="i-logo" viewBox="0 0 64 64"><circle cx="32" cy="32" r="28" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.5"/><circle cx="32" cy="32" r="18" fill="none" stroke="currentColor" stroke-width="0.9" opacity="0.4"/><path fill="currentColor" d="M32 14l4.5 10.2 11 .9-8.3 7.4 2.6 10.7L32 37.5l-9.8 5.7 2.6-10.7-8.3-7.4 11-.9L32 14z" opacity="0.9"/></symbol>
   </svg>
 
@@ -126,32 +128,98 @@
         </div>
       </div>
 
-      <div class="tiles anim-fade delay-2">
-        <button type="button" class="tile" data-go="history">
-          <span class="tile-ico"><svg class="icon"><use href="#i-list"/></svg></span>
-          <span class="tile-t">История</span>
-          <span class="tile-s" id="tile-hist">визиты</span>
-        </button>
-        <button type="button" class="tile" data-go="menu">
-          <span class="tile-ico"><svg class="icon"><use href="#i-book"/></svg></span>
-          <span class="tile-t">Меню</span>
-          <span class="tile-s">заведения</span>
-        </button>
-        <button type="button" class="tile" data-go="promos">
-          <span class="tile-ico"><svg class="icon"><use href="#i-gift-box"/></svg></span>
-          <span class="tile-t">Акции</span>
-          <span class="tile-s">бонусы и подарки</span>
-        </button>
-        <button type="button" class="tile" data-go="profile">
-          <span class="tile-ico"><svg class="icon"><use href="#i-user"/></svg></span>
-          <span class="tile-t">Профиль</span>
-          <span class="tile-s">данные карты</span>
-        </button>
+      <!-- Featured AI assistant -->
+      <button type="button" class="ai-hero anim-fade delay-2" data-go="assistant" id="ai-hero">
+        <div class="ai-hero-glow"></div>
+        <div class="ai-hero-ico">
+          <svg class="icon md"><use href="#i-spark"/></svg>
+        </div>
+        <div class="ai-hero-body">
+          <div class="ai-hero-t">Нейропомощник</div>
+          <div class="ai-hero-s">Спроси про бонусы, акции, адрес или меню</div>
+        </div>
+        <svg class="icon sm ai-hero-chev"><use href="#i-chevron"/></svg>
+      </button>
+
+      <div class="menu-section anim-fade delay-2">
+        <div class="menu-section-h">
+          <span>Главное меню</span>
+          <span class="menu-section-line"></span>
+        </div>
+        <div class="nav-grid">
+          <button type="button" class="nav-card nav-a" data-go="history">
+            <span class="nav-ico"><svg class="icon"><use href="#i-list"/></svg></span>
+            <span class="nav-meta">
+              <span class="nav-t">История</span>
+              <span class="nav-s" id="tile-hist">визиты</span>
+            </span>
+            <span class="nav-arrow"><svg class="icon sm"><use href="#i-chevron"/></svg></span>
+          </button>
+          <button type="button" class="nav-card nav-b" data-go="menu">
+            <span class="nav-ico"><svg class="icon"><use href="#i-book"/></svg></span>
+            <span class="nav-meta">
+              <span class="nav-t">Меню</span>
+              <span class="nav-s">заведения</span>
+            </span>
+            <span class="nav-arrow"><svg class="icon sm"><use href="#i-chevron"/></svg></span>
+          </button>
+          <button type="button" class="nav-card nav-c" data-go="promos">
+            <span class="nav-ico"><svg class="icon"><use href="#i-gift-box"/></svg></span>
+            <span class="nav-meta">
+              <span class="nav-t">Акции</span>
+              <span class="nav-s">бонусы и подарки</span>
+            </span>
+            <span class="nav-arrow"><svg class="icon sm"><use href="#i-chevron"/></svg></span>
+          </button>
+          <button type="button" class="nav-card nav-d" data-go="profile">
+            <span class="nav-ico"><svg class="icon"><use href="#i-user"/></svg></span>
+            <span class="nav-meta">
+              <span class="nav-t">Профиль</span>
+              <span class="nav-s">данные карты</span>
+            </span>
+            <span class="nav-arrow"><svg class="icon sm"><use href="#i-chevron"/></svg></span>
+          </button>
+        </div>
       </div>
 
       <div class="recent anim-fade delay-3">
         <div class="sec-h">Недавние <button type="button" class="link" data-go="history">вся история →</button></div>
         <div id="recent-list" class="list empty-hint">Здесь появится история<br>ваших визитов</div>
+      </div>
+    </section>
+
+    <!-- AI Assistant -->
+    <section id="view-assistant" class="view">
+      <header class="top sub">
+        <button type="button" class="back" data-go="home">
+          <svg class="icon sm" style="display:inline;vertical-align:middle"><use href="#i-back"/></svg> Назад
+        </button>
+        <h2>Помощник</h2>
+      </header>
+      <div class="ai-wrap">
+        <div class="ai-intro glass-card">
+          <div class="ai-intro-row">
+            <div class="ai-avatar"><svg class="icon"><use href="#i-spark"/></svg></div>
+            <div>
+              <div class="ai-intro-t">Исповедь · AI</div>
+              <div class="muted" style="font-size:12px">Отвечаю про лояльность, акции и заведение</div>
+            </div>
+          </div>
+          <div class="ai-chips" id="ai-chips">
+            <button type="button" class="chip" data-q="Как копятся бонусы и уровни?">Бонусы</button>
+            <button type="button" class="chip" data-q="Как работает каждый 8-й кальян?">8-й кальян</button>
+            <button type="button" class="chip" data-q="Где вы находитесь и какой график?">Адрес</button>
+            <button type="button" class="chip" data-q="Сколько у меня бонусов и какой уровень?">Моя карта</button>
+          </div>
+        </div>
+        <div id="ai-chat" class="ai-chat" aria-live="polite"></div>
+        <div class="ai-compose glass-card">
+          <input id="ai-input" type="text" maxlength="800" placeholder="Спросите что угодно…" autocomplete="off" />
+          <button type="button" class="btn primary ai-send" id="btn-ai-send" aria-label="Отправить">
+            <svg class="icon sm" style="stroke:#1a1408"><use href="#i-send"/></svg>
+          </button>
+        </div>
+        <p class="muted center" style="font-size:11px;margin:8px 0 0">Ответы ИИ · не заменяют персонал в зале</p>
       </div>
     </section>
 
@@ -379,9 +447,9 @@
         <span class="tab-ico"><svg class="icon"><use href="#i-card"/></svg></span>
         Карта
       </button>
-      <button type="button" class="tab" data-go="promos">
-        <span class="tab-ico"><svg class="icon"><use href="#i-gift-box"/></svg></span>
-        Акции
+      <button type="button" class="tab" data-go="assistant">
+        <span class="tab-ico"><svg class="icon"><use href="#i-spark"/></svg></span>
+        AI
       </button>
       <button type="button" class="tab" data-go="profile">
         <span class="tab-ico"><svg class="icon"><use href="#i-user"/></svg></span>

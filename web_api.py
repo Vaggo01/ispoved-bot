@@ -16,7 +16,9 @@ import os
 import re
 import threading
 import time
+import urllib.error
 import urllib.parse
+import urllib.request
 from collections import defaultdict, deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -29,6 +31,11 @@ _rl_hits = defaultdict(deque)  # ip -> deque of epoch times
 _RL_WINDOW = 60.0
 _RL_MAX = 90          # general
 _RL_MAX_MUTATE = 30   # POST admin/staff
+_RL_MAX_AI = 12       # assistant chat
+
+# per-user AI daily soft cap (tg_id -> (day, count))
+_ai_day = {}
+_AI_DAY_MAX = 80
 
 
 def bind(bot_module):
@@ -50,22 +57,145 @@ def _client_ip(handler):
     return handler.client_address[0] if handler.client_address else "?"
 
 
-def _rate_ok(ip: str, mutate: bool = False) -> bool:
+def _rate_ok(ip: str, mutate: bool = False, ai: bool = False) -> bool:
     now = time.time()
-    limit = _RL_MAX_MUTATE if mutate else _RL_MAX
+    if ai:
+        limit = _RL_MAX_AI
+        key = "ai:" + ip
+    elif mutate:
+        limit = _RL_MAX_MUTATE
+        key = "m:" + ip
+    else:
+        limit = _RL_MAX
+        key = "r:" + ip
     with _rl_lock:
-        q = _rl_hits[ip]
+        q = _rl_hits[key]
         while q and now - q[0] > _RL_WINDOW:
             q.popleft()
         if len(q) >= limit:
             return False
         q.append(now)
-        # cap memory
         if len(_rl_hits) > 5000:
             dead = [k for k, v in _rl_hits.items() if not v or now - v[-1] > _RL_WINDOW * 2]
             for k in dead[:2000]:
                 _rl_hits.pop(k, None)
         return True
+
+
+def _ai_day_ok(tg_id: int) -> bool:
+    day = time.strftime("%Y-%m-%d", time.gmtime())
+    with _rl_lock:
+        d, n = _ai_day.get(tg_id, ("", 0))
+        if d != day:
+            d, n = day, 0
+        if n >= _AI_DAY_MAX:
+            return False
+        _ai_day[tg_id] = (d, n + 1)
+        return True
+
+
+def _groq_key():
+    return (getattr(B, "GROQ_API_KEY", None) or os.environ.get("GROQ_API_KEY") or "").strip()
+
+
+def _assistant_system(guest, role: str) -> str:
+    brand = getattr(B, "BRAND", {}) or {}
+    loy = getattr(B, "LOYALTY", {}) or {}
+    levels = loy.get("levels") or []
+    lvl_txt = ", ".join(
+        f'{x.get("name")} от {x.get("from")}₽ → {x.get("cashback")}%'
+        for x in levels
+    )
+    g_bits = ""
+    if guest:
+        lv = guest.get("level") or {}
+        g_bits = (
+            f"\nТекущий гость: {guest.get('name') or 'Гость'}, "
+            f"карта {guest.get('card_pretty') or guest.get('card')}, "
+            f"бонусы {guest.get('bonus')}, уровень «{lv.get('name', 'Гость')}» "
+            f"({lv.get('cashback', 5)}% кэшбэк), "
+            f"штампы {guest.get('stamp_count') or 0}/7, "
+            f"free-кальянов в запасе: {guest.get('free_hookah_pending') or 0}, "
+            f"визитов: {guest.get('visits') or 0}."
+        )
+    role_note = ""
+    if role in ("staff", "admin", "owner"):
+        role_note = (
+            f"\nСобеседник — сотрудник ({role}). Можно кратко подсказывать про "
+            "проведение чека (карта + сумма), штампы и уровни. Не выдавай чужие "
+            "персональные данные и не меняй роли сам — только объясняй, как это "
+            "делается в панели Директор / в боте."
+        )
+    return (
+        f"Ты — вежливый нейропомощник лаундж-бара «{brand.get('name', 'Исповедь')}» "
+        f"({brand.get('kind', 'лаундж-бар')}), г. {brand.get('city', 'Пермь')}, "
+        f"{brand.get('addr', '')}. Часы: {brand.get('hours', '')}. "
+        f"Телефон: {brand.get('phone', '')}.\n"
+        "Отвечай по-русски, коротко и по делу (2–6 предложений), тёплый премиум-тон. "
+        "Помогай с программой лояльности, акциями, меню-концепцией, адресом, режимом, "
+        "как показать QR официанту, как копятся бонусы.\n"
+        f"Правила лояльности: welcome {loy.get('welcome', 300)} бонусов, "
+        f"кэшбэк по уровням ({lvl_txt}), "
+        f"бонусами можно оплатить до {loy.get('max_pay_percent', 30)}% чека, "
+        f"день рождения +{loy.get('birthday', 1000)}, "
+        "каждый 8-й кальян бесплатно (7 штампов → free).\n"
+        "Не выдумывай цены, если не уверен — предложи открыть «Меню» в приложении. "
+        "Не проси пароли, токены, чужие номера карт. Не обещай бронь, если не уверен — "
+        "предложи написать директору через бота."
+        f"{g_bits}{role_note}"
+    )
+
+
+def groq_chat(messages, max_tokens=500):
+    """Call Groq OpenAI-compatible chat. Returns (ok, text_or_error)."""
+    key = _groq_key()
+    if not key:
+        return False, "Нейропомощник не настроен (нет GROQ_API_KEY на сервере)"
+    model = getattr(B, "GROQ_MODEL", None) or "llama-3.3-70b-versatile"
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0.6,
+        "max_tokens": max_tokens,
+        "top_p": 0.9,
+    }
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.groq.com/openai/v1/chat/completions",
+        data=data,
+        method="POST",
+        headers={
+            "Authorization": "Bearer " + key,
+            "Content-Type": "application/json",
+            "User-Agent": "IspovedMiniApp/1.0",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=45) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+        obj = json.loads(raw)
+        choices = obj.get("choices") or []
+        if not choices:
+            return False, "пустой ответ модели"
+        msg = (choices[0].get("message") or {}).get("content") or ""
+        msg = msg.strip()
+        if not msg:
+            return False, "пустой ответ модели"
+        return True, msg[:4000]
+    except urllib.error.HTTPError as e:
+        try:
+            body = e.read().decode("utf-8", errors="replace")[:300]
+        except Exception:
+            body = ""
+        _log("groq HTTP", e.code, body)
+        if e.code == 401:
+            return False, "ключ Groq отклонён — проверьте GROQ_API_KEY"
+        if e.code == 429:
+            return False, "лимит Groq, подождите минуту"
+        return False, "ошибка нейросети"
+    except Exception as e:
+        _log("groq err", repr(e))
+        return False, "нейросеть недоступна"
 
 
 # ── initData validation (Telegram WebApp) ─────────────────────
@@ -272,6 +402,7 @@ class Handler(BaseHTTPRequestHandler):
                 "bot": getattr(B, "BOT_NAME", ""),
                 "sheets": bool(B.SHEETS_URL),
                 "webapp": bool(B.WEBAPP_URL),
+                "assistant": bool(_groq_key()),
             })
             return self._send(c, b)
 
@@ -295,6 +426,7 @@ class Handler(BaseHTTPRequestHandler):
                 "tg_id": int(user["id"]),
                 "role": role or "guest",
                 "guest": guest_public(g),
+                "assistant": bool(_groq_key()),
             })
             return self._send(c, b)
 
@@ -422,6 +554,62 @@ class Handler(BaseHTTPRequestHandler):
 
         path = urllib.parse.urlparse(self.path).path
         body = self._read_json()
+
+        # ── AI assistant (Groq, server-side key) ──
+        if path == "/api/assistant":
+            ip = _client_ip(self)
+            if not _rate_ok(ip, ai=True):
+                c, b = _json_bytes({"error": "слишком много запросов, подождите"}, 429)
+                return self._send(c, b)
+            user, err = self._auth(max_age=self.MAX_AGE_GUEST)
+            if err:
+                c, b = _json_bytes({"error": err}, 401)
+                return self._send(c, b)
+            if not _ai_day_ok(int(user["id"])):
+                c, b = _json_bytes({"error": "дневной лимит помощника исчерпан"}, 429)
+                return self._send(c, b)
+            if not _groq_key():
+                c, b = _json_bytes({
+                    "error": "помощник не настроен — задайте GROQ_API_KEY на сервере",
+                    "code": "no_groq_key",
+                }, 503)
+                return self._send(c, b)
+
+            text = (body.get("message") or body.get("text") or "").strip()
+            if not text:
+                c, b = _json_bytes({"error": "пустой вопрос"}, 400)
+                return self._send(c, b)
+            if len(text) > 800:
+                c, b = _json_bytes({"error": "слишком длинный вопрос (макс 800)"}, 400)
+                return self._send(c, b)
+
+            # optional short history from client (last turns only)
+            history = body.get("history") or []
+            if not isinstance(history, list):
+                history = []
+            clean_hist = []
+            for h in history[-8:]:
+                if not isinstance(h, dict):
+                    continue
+                role_h = h.get("role")
+                content = (h.get("content") or "").strip()
+                if role_h not in ("user", "assistant") or not content:
+                    continue
+                clean_hist.append({"role": role_h, "content": content[:800]})
+
+            g = ensure_guest_from_user(user)
+            gp = guest_public(g) or {}
+            role = B.raw_role(int(user["id"]), user.get("username") or "") or "guest"
+            messages = [{"role": "system", "content": _assistant_system(gp, role)}]
+            messages.extend(clean_hist)
+            messages.append({"role": "user", "content": text})
+
+            ok, reply = groq_chat(messages)
+            if not ok:
+                c, b = _json_bytes({"error": reply}, 502)
+                return self._send(c, b)
+            c, b = _json_bytes({"ok": True, "reply": reply})
+            return self._send(c, b)
 
         if path == "/api/register":
             user, err = self._auth(max_age=self.MAX_AGE_GUEST)
