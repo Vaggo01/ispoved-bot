@@ -160,8 +160,13 @@ MENU = [
 """
 
 # ── Токен бота ────────────────────────────────────────────────
-# Лучше положить в переменную окружения BOT_TOKEN, а не в файл.
-TOKEN = os.environ.get("BOT_TOKEN", "ВСТАВЬ_СЮДА_ТОКЕН")
+# Bothost: BOT_TOKEN / TELEGRAM_BOT_TOKEN / API_TOKEN (системные имена).
+TOKEN = (
+    os.environ.get("BOT_TOKEN")
+    or os.environ.get("TELEGRAM_BOT_TOKEN")
+    or os.environ.get("API_TOKEN")
+    or "ВСТАВЬ_СЮДА_ТОКЕН"
+)
 
 # ── Кто есть кто ──────────────────────────────────────────────
 # Здесь задаётся ТОЛЬКО первый владелец — чтобы было кому раздать
@@ -214,9 +219,13 @@ SHEETS_URL = os.environ.get("SHEETS_URL", "").strip()
 WEBAPP_URL = os.environ.get("WEBAPP_URL", "").strip()
 
 # ── HTTP API для Mini App (stdlib ThreadingHTTPServer) ────────
-# API_PORT=0 — не поднимать HTTP (только long-poll, как раньше).
+# Bothost часто задаёт PORT; иначе API_PORT (8080). 0 = HTTP выкл.
 API_HOST = os.environ.get("API_HOST", "0.0.0.0")
-API_PORT = int(os.environ.get("API_PORT", "8080"))
+_port_raw = os.environ.get("API_PORT") or os.environ.get("PORT") or "8080"
+try:
+    API_PORT = int(_port_raw)
+except ValueError:
+    API_PORT = 8080
 # CORS: origin Mini App (https://vaggo01.github.io) или * для отладки
 API_CORS = os.environ.get("API_CORS", "*")
 
@@ -228,9 +237,20 @@ BACKUP_ENABLED = os.environ.get("BACKUP_ENABLED", "1") != "0"
 BACKUP_HOUR    = int(os.environ.get("BACKUP_HOUR", "5"))   # час по времени Перми
 
 # ── Прочее ────────────────────────────────────────────────────
-# На Bothost и подобных хостингах путь надо указать в постоянный диск,
-# например /data/ispoved.db — иначе база пропадёт при пересборке.
-DB_PATH   = os.environ.get("DB_PATH", "ispoved.db")
+# Bothost: БД только в /app/data (volume). Иначе — локальный файл.
+def _default_db_path():
+    if os.environ.get("DB_PATH"):
+        return os.environ["DB_PATH"]
+    bothost_data = "/app/data"
+    if os.path.isdir(bothost_data):
+        try:
+            os.makedirs(bothost_data, exist_ok=True)
+        except OSError:
+            pass
+        return os.path.join(bothost_data, "ispoved.db")
+    return "ispoved.db"
+
+DB_PATH   = _default_db_path()
 TIMEZONE  = 5          # UTC+5, Пермь
 LOG_FILE  = "bot.log"
 
