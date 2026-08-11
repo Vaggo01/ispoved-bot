@@ -231,21 +231,33 @@ LOYALTY = {
 SHEETS_URL = os.environ.get("SHEETS_URL", "").strip()
 
 # ── Ссылка на мини-приложение ─────────────────────────────────
-# HTTPS URL Mini App. ispoved.bothost.tech → https://ispoved.bothost.tech/app/
+# HTTPS URL Mini App.
+# ispoved-perm → https://ispoved-perm.bothost.tech/app/
+# ispoved-perm.bothost.tech → https://ispoved-perm.bothost.tech/app/
 def _norm_webapp_url(raw):
     u = (raw or "").strip()
     if not u:
         return ""
+    # убрать случайный полный URL с пробелами
+    u = u.replace(" ", "")
     if not (u.startswith("http://") or u.startswith("https://")):
         u = "https://" + u.lstrip("/")
-    u = u.rstrip("/")
-    # только хост (без path) → /app
     parsed = urllib.parse.urlparse(u)
-    if not parsed.path or parsed.path == "/":
-        u = u + "/app"
-    return u + "/"
+    host = (parsed.netloc or "").lower()
+    path = parsed.path or ""
+    # если host пуст (кривой URL) — не используем
+    if not host:
+        return ""
+    # короткое имя без точки: ispoved-perm → ispoved-perm.bothost.tech
+    if "." not in host:
+        host = host + ".bothost.tech"
+    # path пустой или / → /app/
+    if not path or path == "/":
+        path = "/app"
+    path = path.rstrip("/") + "/"
+    return "https://{0}{1}".format(host, path)
 
-# Bothost часто кладёт DOMAIN=ispoved.bothost.tech без WEBAPP_URL
+# Bothost: WEBAPP_URL или DOMAIN (часто без https)
 WEBAPP_URL = _norm_webapp_url(
     os.environ.get("WEBAPP_URL")
     or os.environ.get("DOMAIN")
