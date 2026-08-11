@@ -160,13 +160,29 @@ MENU = [
 """
 
 # ── Токен бота ────────────────────────────────────────────────
-# Bothost: BOT_TOKEN / TELEGRAM_BOT_TOKEN / API_TOKEN (системные имена).
-TOKEN = (
-    os.environ.get("BOT_TOKEN")
-    or os.environ.get("TELEGRAM_BOT_TOKEN")
-    or os.environ.get("API_TOKEN")
-    or "ВСТАВЬ_СЮДА_ТОКЕН"
-)
+# 1) env: BOT_TOKEN / TELEGRAM_BOT_TOKEN / API_TOKEN
+# 2) файл (обход глюка Bothost env): /app/data/bot_token.txt или bot_token.txt
+def _load_token():
+    for key in ("BOT_TOKEN", "TELEGRAM_BOT_TOKEN", "API_TOKEN"):
+        v = (os.environ.get(key) or "").strip()
+        if v and "ВСТАВЬ" not in v:
+            return v
+    for path in (
+        os.path.join("/app/data", "bot_token.txt"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "bot_token.txt"),
+        "bot_token.txt",
+    ):
+        try:
+            if os.path.isfile(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    v = f.read().strip().splitlines()[0].strip()
+                if v and not v.startswith("#"):
+                    return v
+        except Exception:
+            pass
+    return "ВСТАВЬ_СЮДА_ТОКЕН"
+
+TOKEN = _load_token()
 
 # ── Кто есть кто ──────────────────────────────────────────────
 # Здесь задаётся ТОЛЬКО первый владелец — чтобы было кому раздать
