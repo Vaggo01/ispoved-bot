@@ -2030,29 +2030,29 @@ def send_card_qr(uid, g):
         send(uid, guest_card_text(g), guest_menu(g))
         return
     lv = level_of(g["spent"])
-    cap = (f"🎫 <b>Карта {pretty_card(g['card'])}</b>\n"
-           f"👤 {esc(g['name'] or 'Гость')} · {lv['name']}\n"
-           f"💰 <b>{pts(g['bonus'])}</b> бонусов\n\n"
-           f"<i>Покажите этот код официанту.</i>")
+    cap = (f"◆ <b>{esc(BRAND['name'])}</b> · карта лояльности\n\n"
+           f"<b>{esc(g['name'] or 'Гость')}</b> · {esc(lv['name'])}\n"
+           f"№ <code>{pretty_card(g['card'])}</code>\n"
+           f"Баланс: <b>{pts(g['bonus'])}</b> бонусов\n\n"
+           f"<i>Покажите QR официанту при оплате</i>")
     ok = send_photo(uid, f"card-{g['card']}.png", img, cap,
-                       kb([[("← К карте", "g:card")]]))
+                       kb([[("← В меню", "g:card")]]))
     if not ok:
         send(uid, guest_card_text(g), guest_menu(g))
 
 
 def guest_menu(g):
-    lv = level_of(g["spent"])
     rows = [
-        [("📱 Показать QR", "g:qr")],
-        [("💳 Моя карта", "g:card"), ("🎁 Бонусы", "g:bonus")],
-        [("📖 Меню", "g:menu"), ("🕐 История", "g:hist")],
-        [("🎟 Ввести купон", "g:coupon")],
-        [("📅 Забронировать стол", "g:book")],
-        [("✉️ Написать директору", "g:dm")],
-        [("⚙️ Профиль", "g:prof")],
+        [("QR-код для зала", "g:qr")],
+        [("Моя карта", "g:card"), ("Бонусы и уровни", "g:bonus")],
+        [("Меню заведения", "g:menu"), ("История", "g:hist")],
+        [("Ввести купон", "g:coupon")],
+        [("Забронировать стол", "g:book")],
+        [("Написать директору", "g:dm")],
+        [("Профиль", "g:prof")],
     ]
     if WEBAPP_URL:
-        rows.insert(0, [("🎫 Открыть карту", {"web_app": {"url": WEBAPP_URL}})])
+        rows.insert(0, [("Открыть приложение", {"web_app": {"url": WEBAPP_URL}})])
     return kb(rows)
 
 def progress_bar(done, total, width=10):
@@ -2076,28 +2076,38 @@ def guest_card_text(g):
     nx = next_level(g["spent"])
     stars = "★" * (level_index(g["spent"]) + 1) + \
             "☆" * (len(LOYALTY["levels"]) - level_index(g["spent"]) - 1)
+    first = (g.get("name") or "Гость").split()[0]
 
-    t = (f"╭───────────────────╮\n"
-         f"   <b>{esc(BRAND['name']).upper()}</b>\n"
-         f"   <i>{esc(BRAND['kind'])}</i>\n"
-         f"╰───────────────────╯\n\n"
-         f"👤 <b>{esc(g['name'] or 'Гость')}</b>\n"
-         f"🎫 <code>{pretty_card(g['card'])}</code>\n\n"
-         f"💰 <b>{pts(g['bonus'])}</b> бонусов\n"
-         f"{stars} {lv['name']} · кэшбэк {lv['cashback']}%\n\n")
+    t = (f"<b>{esc(BRAND['name'])}</b> · {esc(BRAND['kind'])}\n"
+         f"{esc(BRAND['city'])}, {esc(BRAND['addr'])}\n"
+         f"────────────────────\n\n"
+         f"Здравствуйте, <b>{esc(first)}</b>\n"
+         f"Карта <code>{pretty_card(g['card'])}</code>\n\n"
+         f"<b>{pts(g['bonus'])}</b> бонусов на счёте\n"
+         f"{stars}  <b>{esc(lv['name'])}</b> · кэшбэк <b>{lv['cashback']}%</b>\n\n")
 
     if nx:
         prev = lv["from"]
         need = nx["from"] - g["spent"]
         bar = progress_bar(g["spent"] - prev, nx["from"] - prev)
         t += (f"{bar}\n"
-              f"До «{nx['name']}» — {money(need)}\n"
-              f"<i>там кэшбэк {nx['cashback']}%</i>\n\n")
+              f"До уровня «{esc(nx['name'])}» — {money(need)}\n"
+              f"<i>кэшбэк станет {nx['cashback']}%</i>\n\n")
     else:
-        t += "👑 <b>Максимальный уровень</b>\n\n"
+        t += "<b>Максимальный уровень</b> — спасибо, что вы с нами\n\n"
 
-    t += (f"🧾 Визитов: {g['visits']} · {money(g['spent'])}\n\n"
-          f"<i>Покажите QR или назовите номер карты официанту.</i>")
+    stamp = int(g.get("stamp_count") or 0)
+    free_h = int(g.get("free_hookah_pending") or 0)
+    t += (f"Отметки кальяна: <b>{stamp}/7</b>"
+          + (f" · free: <b>{free_h}</b>" if free_h else "")
+          + "\n"
+          f"Визитов: {g['visits']} · всего {money(g['spent'])}\n\n")
+
+    if WEBAPP_URL:
+        t += "<i>Удобнее в приложении — кнопка «Открыть приложение» ниже.\n"
+        t += "В зале покажите QR или назовите номер карты.</i>"
+    else:
+        t += "<i>В зале покажите QR или назовите номер карты официанту.</i>"
     return t
 
 def guest_start(uid, msg):
@@ -2105,20 +2115,32 @@ def guest_start(uid, msg):
     name = " ".join(x for x in [u.get("first_name"), u.get("last_name")] if x)
     g, new = add_guest(uid, name, u.get("username", ""))
     if new:
-        send(uid,
-            f"<b>Добро пожаловать в «{esc(BRAND['name'])}»</b> 🖤\n\n"
-            f"Ваша карта <code>{pretty_card(g['card'])}</code> готова.\n"
-            f"Мы начислили <b>{pts(LOYALTY['welcome'])}</b> приветственных бонусов.\n\n"
-            f"Кэшбэк {LOYALTY['cashback']}% с каждого чека, "
-            f"бонусами можно оплатить до {LOYALTY['max_pay_percent']}% счёта.")
-        # Сразу показываем карту с QR — это первое, что видит гость.
+        first = (name or "друг").split()[0]
+        welcome = (
+            f"<b>Добро пожаловать в «{esc(BRAND['name'])}»</b>\n\n"
+            f"{esc(first)}, ваша карта лояльности готова.\n\n"
+            f"Номер: <code>{pretty_card(g['card'])}</code>\n"
+            f"Начислено: <b>+{pts(LOYALTY['welcome'])}</b> бонусов в подарок\n\n"
+            f"· кэшбэк <b>{LOYALTY['cashback']}%</b> с каждого чека\n"
+            f"· бонусами можно оплатить до <b>{LOYALTY['max_pay_percent']}%</b> счёта\n"
+            f"· каждый 8-й кальян — бесплатно (по отметкам)\n\n"
+        )
+        if WEBAPP_URL:
+            welcome += "Откройте <b>приложение</b> — там карта, QR и прогресс.\n"
+            welcome += "Или пользуйтесь кнопками меню ниже."
+        else:
+            welcome += "Ниже — ваша карта и меню."
+        send(uid, welcome)
         send_card_qr(uid, g)
         send(uid, guest_card_text(g), guest_menu(g))
         for a in admin_ids():
-            send(a, f"🆕 Новый гость: {esc(name)} · карта "
-                       f"<code>{pretty_card(g['card'])}</code>")
+            send(a, f"Новый гость: <b>{esc(name or '—')}</b>\n"
+                       f"Карта <code>{pretty_card(g['card'])}</code>")
     else:
-        send(uid, guest_card_text(g), guest_menu(g))
+        first = (g.get("name") or name or "друг").split()[0]
+        send(uid,
+             f"С возвращением, <b>{esc(first)}</b>\n\n" + guest_card_text(g),
+             guest_menu(g))
 
 def guest_cb(uid, data, cb, g):
     mid = cb["message"]["message_id"]
@@ -2132,31 +2154,37 @@ def guest_cb(uid, data, cb, g):
 
     elif act == "bonus":
         lv = level_of(g["spent"])
-        t = (f"<b>Как работают бонусы</b>\n\n"
-             f"💰 Ваш баланс: <b>{pts(g['bonus'])}</b>\n\n"
-             f"• Кэшбэк <b>{lv['cashback']}%</b> с каждого чека\n"
-             f"• Оплатить бонусами можно до <b>{LOYALTY['max_pay_percent']}%</b> счёта\n"
-             f"• В день рождения дарим <b>{pts(LOYALTY['birthday'])}</b> бонусов\n")
+        t = (f"<b>Программа лояльности</b>\n\n"
+             f"Сейчас у вас: <b>{pts(g['bonus'])}</b> бонусов\n"
+             f"Ваш уровень: <b>{esc(lv['name'])}</b> · кэшбэк <b>{lv['cashback']}%</b>\n\n"
+             f"<b>Правила</b>\n"
+             f"· кэшбэк с оплаченной части чека\n"
+             f"· бонусами — до <b>{LOYALTY['max_pay_percent']}%</b> счёта\n"
+             f"· в день рождения: <b>+{pts(LOYALTY['birthday'])}</b> (при визите)\n"
+             f"· 7 отметок за кальян → 8-й в подарок\n")
         if LOYALTY.get("burn_days"):
-            t += f"• Бонусы сгорают через {LOYALTY['burn_days']} дней без визитов\n"
+            t += f"· без визитов {LOYALTY['burn_days']} дней бонусы сгорают\n"
         t += "\n<b>Уровни</b>\n"
         for l in LOYALTY["levels"]:
-            mark = "👉 " if l["name"] == lv["name"] else "  "
-            t += f"{mark}{l['name']} — от {money(l['from'])} · кэшбэк {l['cashback']}%\n"
-        edit(uid, mid, t, kb([[("← Назад", "g:card")]]))
+            mark = "→ " if l["name"] == lv["name"] else "   "
+            t += f"{mark}<b>{esc(l['name'])}</b> — от {money(l['from'])}, кэшбэк {l['cashback']}%\n"
+        t += "\n<i>1 бонус = 1 ₽ при оплате в заведении</i>"
+        edit(uid, mid, t, kb([[("← К карте", "g:card")]]))
 
     elif act == "menu":
         try:
-            pass
             cats = MENU
         except Exception:
             cats = []
         if not cats:
             answer(cb["id"], "Меню пока не заполнено", True); return
-        rows = [[(c["t"] + (" 18+" if c.get("alco") else ""), f"g:mc:{c['id']}")]
+        rows = [[(c["t"] + (" · 18+" if c.get("alco") else ""), f"g:mc:{c['id']}")]
                 for c in cats]
-        rows.append([("← Назад", "g:card")])
-        edit(uid, mid, "<b>Меню</b>\n\nВыберите раздел:", kb(rows))
+        rows.append([("← К карте", "g:card")])
+        edit(uid, mid,
+             f"<b>Меню «{esc(BRAND['name'])}»</b>\n\n"
+             f"Выберите раздел. Цены — ориентир; актуальные уточняйте в зале.",
+             kb(rows))
 
     elif act.startswith("mc:"):
         cid = act[3:]
@@ -2431,10 +2459,14 @@ def staff_menu():
 
 def staff_start(uid):
     send(uid,
-        f"<b>Панель официанта</b> · {esc(BRAND['name'])}\n\n"
-        f"Начислить бонусы: нажмите «Начислить по чеку» или просто отправьте\n"
-        f"<code>номер_карты сумма</code>\n"
-        f"<i>Например: 482951 2400</i>",
+        f"<b>Смена · {esc(BRAND['name'])}</b>\n"
+        f"<i>панель официанта</i>\n\n"
+        f"<b>Быстрое начисление</b>\n"
+        f"Отправьте одним сообщением:\n"
+        f"<code>номер_карты сумма</code>\n\n"
+        f"Пример: <code>482951 2400</code>\n"
+        f"Со списанием: <code>482951 2400 500</code>\n\n"
+        f"Или кнопки ниже.",
         staff_menu())
 
 def staff_cb(uid, data, cb):
@@ -2591,16 +2623,20 @@ def notify_guest_visit(g, r, total, upts):
     """Уведомление гостю после начисления."""
     if g.get("muted"):
         return
-    t = f"🧾 <b>Спасибо за визит!</b>\n\nЧек: {money(total)}\n"
+    first = (g.get("name") or "Гость").split()[0]
+    t = (f"<b>Спасибо, что были в «{esc(BRAND['name'])}»!</b>\n\n"
+         f"{esc(first)}, ваш визит учтён.\n\n"
+         f"Чек: <b>{money(total)}</b>\n")
     if upts:
-        t += f"➖ Списано: {pts(upts)} бонусов\n"
-    t += f"➕ Начислено: <b>{pts(r['earned'] + r['extra'])}</b>\n"
+        t += f"Списано бонусов: <b>{pts(upts)}</b>\n"
+    t += f"Начислено: <b>+{pts(r['earned'] + r['extra'])}</b>\n"
     if r["why"]:
-        t += f"🎉 Бонус: {esc(r['why'])}\n"
-    t += f"\n💰 Баланс: <b>{pts(g['bonus'])}</b> бонусов"
+        t += f"Подарок: {esc(r['why'])}\n"
+    t += f"\nБаланс сейчас: <b>{pts(g['bonus'])}</b> бонусов"
     nx = next_level(g["spent"])
     if nx:
-        t += f"\n⬆️ До «{nx['name']}» — {money(nx['from'] - g['spent'])}"
+        t += f"\nДо «{esc(nx['name'])}» — ещё {money(nx['from'] - g['spent'])}"
+    t += f"\n\n<i>Ждём вас снова в «{esc(BRAND['name'])}»</i>"
     try:
         send(g["tg_id"], t)
     except Exception:
@@ -2611,26 +2647,30 @@ def notify_guest_visit(g, r, total, upts):
 # ══════════════════════════════════════════════════════════════
 def admin_menu(uid=None):
     rows = [
-        [("📊 Статистика", "a:stat"), ("👥 Гости", "a:guests")],
-        [("💳 Начислить", "s:pay"), ("🔍 Найти", "a:find")],
-        [("🎟 Купоны", "a:coups")],
-        [("📣 Рассылка", "a:cast")],
-        [("📥 Выгрузить в файл", "a:export")],
-        [("💾 Копия базы", "a:backup"), ("⚙️ Настройки", "a:set")],
+        [("Статистика", "a:stat"), ("Гости", "a:guests")],
+        [("Начислить", "s:pay"), ("Найти", "a:find")],
+        [("Купоны", "a:coups")],
+        [("Рассылка", "a:cast")],
+        [("Выгрузить CSV", "a:export")],
+        [("Копия базы", "a:backup"), ("Настройки", "a:set")],
     ]
     # Раздача ролей — только владельцу. Директор не должен мочь
     # разжаловать того, кто ему бота поставил.
     if uid is not None and is_owner(uid):
-        rows.insert(5, [("🔑 Роли и доступ", "a:roles")])
+        rows.insert(5, [("Роли и доступ", "a:roles")])
     return kb(rows)
 
 def admin_start(uid):
     s = stats()
     send(uid,
-        f"<b>Админ-панель</b> · {esc(BRAND['name'])}\n\n"
-        f"👥 Гостей: <b>{s['guests']}</b> · активных за 30 дней: {s['active30']}\n"
-        f"🧾 Визитов: {s['visits']} · выручка {money(s['revenue'])}\n"
-        f"💰 Бонусов на руках: {pts(s['liability'])}",
+        f"<b>Управление · {esc(BRAND['name'])}</b>\n"
+        f"<i>директор / владелец</i>\n\n"
+        f"Гостей в базе: <b>{s['guests']}</b>\n"
+        f"Активны за 30 дней: <b>{s['active30']}</b>\n"
+        f"Визитов всего: <b>{s['visits']}</b>\n"
+        f"Выручка (учтённая): <b>{money(s['revenue'])}</b>\n"
+        f"Бонусов «на руках» у гостей: <b>{pts(s['liability'])}</b>\n\n"
+        f"Сегодня: {s['today_visits']} визитов · {money(s['today_revenue'])}",
         admin_menu(uid))
 
 def admin_cb(uid, data, cb):
@@ -3501,9 +3541,9 @@ def main():
                     "и перешлите его мне — я всё верну.")
 
     call("setMyCommands", commands=[
-        {"command": "start", "description": "Моя карта"},
-        {"command": "card",  "description": "Открыть мини-приложение"},
-        {"command": "stop",  "description": "Отключить уведомления"},
+        {"command": "start", "description": "Карта лояльности «Исповедь»"},
+        {"command": "card",  "description": "Открыть приложение"},
+        {"command": "stop",  "description": "Выключить уведомления о визитах"},
     ])
     if WEBAPP_URL:
         try:
