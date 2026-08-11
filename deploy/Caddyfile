@@ -1,5 +1,5 @@
-# Авто-HTTPS (Let's Encrypt). DOMAIN = IP.sslip.io или свой домен.
+# host network: прокси на localhost:8080 (бот)
 {$DOMAIN:localhost} {
 	encode gzip
-	reverse_proxy bot:8080
+	reverse_proxy 127.0.0.1:8080
 }

@@ -1,5 +1,5 @@
-# Исповедь — бот + Mini App + HTTPS (Caddy)
-# Запуск: см. docs/VPS_ДЕШЕВО.md  или  ./install.sh
+# Исповедь — host network (на VPS Docker-bridge часто без выхода в Telegram)
+# Порты: бот 8080, Caddy 80/443 — на хосте напрямую
 
 services:
   bot:
@@ -8,30 +8,21 @@ services:
       dockerfile: Dockerfile
     container_name: ispoved-bot
     restart: unless-stopped
+    network_mode: host
     env_file:
       - .env
     environment:
-      # Caddy ходит на 8080 внутри сети; снаружи только 80/443
       PORT: "8080"
       API_HOST: "0.0.0.0"
       DB_PATH: "/app/data/ispoved.db"
     volumes:
       - ispoved_data:/app/data
-    # 8080 на хосте — чтобы curl 127.0.0.1:8080 работал (отладка)
-    ports:
-      - "8080:8080"
-    expose:
-      - "8080"
-    networks:
-      - web
 
   caddy:
     image: caddy:2-alpine
     container_name: ispoved-caddy
     restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
+    network_mode: host
     environment:
       DOMAIN: ${DOMAIN}
     volumes:
@@ -40,14 +31,8 @@ services:
       - caddy_config:/config
     depends_on:
       - bot
-    networks:
-      - web
 
 volumes:
   ispoved_data:
   caddy_data:
   caddy_config:
-
-networks:
-  web:
-    driver: bridge
