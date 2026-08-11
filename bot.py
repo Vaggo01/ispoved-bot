@@ -2148,6 +2148,16 @@ def guest_card_text(g):
 def guest_start(uid, msg):
     u = msg.get("from", {})
     name = " ".join(x for x in [u.get("first_name"), u.get("last_name")] if x)
+    # Подтянуть актуальный URL WebApp (лента «Открыть» / меню)
+    if WEBAPP_URL:
+        try:
+            call("setChatMenuButton", menu_button={
+                "type": "web_app",
+                "text": "Карта",
+                "web_app": {"url": WEBAPP_URL},
+            })
+        except Exception:
+            pass
     g, new = add_guest(uid, name, u.get("username", ""))
     if new:
         first = (name or "друг").split()[0]
@@ -3586,11 +3596,13 @@ def main():
     ])
     if WEBAPP_URL:
         try:
+            # Кнопка «Карта» внизу чата + то, что Telegram тянет для «Открыть» в ленте
             call("setChatMenuButton", menu_button={
                 "type": "web_app",
                 "text": "Карта",
                 "web_app": {"url": WEBAPP_URL},
             })
+            log("Menu/WebApp button URL:", WEBAPP_URL)
         except Exception as e:
             log("menu button:", repr(e))
 
