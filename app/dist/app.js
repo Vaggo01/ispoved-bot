@@ -125,9 +125,12 @@
     box.innerHTML = "";
     for (let i = 0; i < 8; i++) {
       const d = document.createElement("div");
-      d.className = "stamp" + (i < 7 && i < count ? " filled" : "") + (i === 7 ? " gift" : "");
-      d.textContent = i === 7 ? "🎁" : i < count ? "★" : "☆";
-      d.style.animationDelay = i * 0.04 + "s";
+      const filled = i < 7 && i < count;
+      const isGift = i === 7;
+      d.className = "stamp" + (filled || (isGift && count >= 7) ? " filled" : "") + (isGift ? " gift" : "");
+      d.style.animationDelay = i * 0.05 + "s";
+      const icon = isGift ? "i-gift" : (filled ? "i-star" : "i-star-o");
+      d.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20"><use href="#' + icon + '"/></svg>';
       box.appendChild(d);
     }
   }
@@ -164,7 +167,10 @@
 
     const brand = g.brand || {};
     const al = $("addr-link");
-    al.textContent = (brand.addr || "Адрес") + (brand.phone ? " · " + brand.phone : "");
+    const addrLabel = (brand.addr || "Адрес") + (brand.phone ? " · " + brand.phone : "");
+    const addrText = $("addr-text");
+    if (addrText) addrText.textContent = addrLabel;
+    else al.textContent = addrLabel;
     al.href = "https://yandex.ru/maps/?text=" + encodeURIComponent(
       (brand.city || "Пермь") + " " + (brand.addr || "")
     );

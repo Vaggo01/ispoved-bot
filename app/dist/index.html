@@ -3,14 +3,40 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0a090c" />
   <title>Исповедь — карта</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <!-- Shared SVG sprite -->
+  <svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+    <symbol id="i-star" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2.5l2.9 6.1 6.6.9-4.8 4.6 1.2 6.5L12 17.8 6.1 20.6l1.2-6.5L2.5 9.5l6.6-.9L12 2.5z"/></symbol>
+    <symbol id="i-star-o" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M12 3.2l2.5 5.3 5.8.8-4.2 4 1 5.7L12 16.3 6.9 19l1-5.7-4.2-4 5.8-.8L12 3.2z"/></symbol>
+    <symbol id="i-gift" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M20 12v8a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-8M2 7h20v5H2V7zm10 0V3m0 4H7.5a2.5 2.5 0 1 1 0-5C11 2 12 7 12 7zm0 0h4.5a2.5 2.5 0 1 0 0-5C13 2 12 7 12 7zM12 7v14"/></symbol>
+    <symbol id="i-qr" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M4 4h6v6H4V4zm10 0h6v6h-6V4zM4 14h6v6H4v-6zm10 2h2v2h-2v-2zm4 0h2v2h-2v-2zm-4 4h2v2h-2v-2zm4 0h2v2h-2v-2zm-2-2h2v2h-2v-2z"/></symbol>
+    <symbol id="i-history" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h10"/><circle cx="18" cy="18" r="0.01" fill="currentColor"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h10"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></symbol>
+    <symbol id="i-gift-box" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M20 12v8a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-8M2 7h20v5H2zm10-4v4m0 0H8m4 0h4"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
+    <symbol id="i-card" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path fill="none" stroke="currentColor" stroke-width="1.7" d="M2 10h20"/></symbol>
+    <symbol id="i-map" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M12 21s7-4.5 7-11a7 7 0 1 0-14 0c0 6.5 7 11 7 11z"/><circle cx="12" cy="10" r="2.5" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M12 3l8 3v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-3z"/></symbol>
+    <symbol id="i-scan" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M8 12h8"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M9 6l6 6-6 6"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M15 18l-6-6 6-6"/></symbol>
+    <symbol id="i-staff" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/><path fill="none" stroke="currentColor" stroke-width="1.5" d="M16 7h4M18 5v4"/></symbol>
+    <symbol id="i-logo" viewBox="0 0 64 64"><circle cx="32" cy="32" r="28" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.5"/><circle cx="32" cy="32" r="18" fill="none" stroke="currentColor" stroke-width="0.9" opacity="0.4"/><path fill="currentColor" d="M32 14l4.5 10.2 11 .9-8.3 7.4 2.6 10.7L32 37.5l-9.8 5.7 2.6-10.7-8.3-7.4 11-.9L32 14z" opacity="0.9"/></symbol>
+  </svg>
+
   <div id="app">
     <!-- Boot -->
     <section id="view-boot" class="view active">
+      <div class="boot-mark">
+        <svg width="40" height="40" style="color:var(--gold2)"><use href="#i-logo"/></svg>
+      </div>
       <div class="boot-logo">ИСПОВЕДЬ</div>
       <div class="boot-sub">лаундж-бар · Пермь</div>
       <div class="spinner"></div>
@@ -18,7 +44,9 @@
 
     <!-- Register -->
     <section id="view-reg" class="view">
-      <div class="hero-bg"></div>
+      <div class="hero-bg">
+        <svg class="hero-ornament" viewBox="0 0 64 64" aria-hidden="true"><use href="#i-logo"/></svg>
+      </div>
       <div class="reg-sheet anim-up">
         <h1>Регистрация</h1>
         <p class="muted">Выпустите карту и получайте бонусы за каждый визит.</p>
@@ -41,10 +69,12 @@
       </div>
     </section>
 
-    <!-- SOPD full text -->
+    <!-- SOPD -->
     <section id="view-sopd" class="view">
       <header class="top sub">
-        <button type="button" class="back" id="btn-sopd-back">← Назад</button>
+        <button type="button" class="back" id="btn-sopd-back">
+          <svg class="icon sm" style="display:inline;vertical-align:middle"><use href="#i-back"/></svg> Назад
+        </button>
         <h2>СОПД</h2>
       </header>
       <div class="pad sopd-text" id="sopd-body"></div>
@@ -53,17 +83,15 @@
       </div>
     </section>
 
-    <!-- Home / Card -->
+    <!-- Home -->
     <section id="view-home" class="view">
       <header class="top">
         <div>
-          <div class="hello muted">Привет,</div>
+          <div class="hello">Привет,</div>
           <div class="hello-name" id="hello-name">Гость</div>
         </div>
-        <button type="button" class="icon-btn" id="btn-qr" aria-label="QR">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-            <path d="M4 4h6v6H4V4zm10 0h6v6h-6V4zM4 14h6v6H4v-6zm10 3h3v3h-3v-3zm0-3h6v2h-6v-2zm3 3h3v3h-3v-3z"/>
-          </svg>
+        <button type="button" class="icon-btn" id="btn-qr" aria-label="QR-код">
+          <svg class="icon md"><use href="#i-qr"/></svg>
         </button>
       </header>
 
@@ -86,43 +114,45 @@
           <div class="level-name" id="level-name">Гость</div>
           <div class="level-cb" id="level-cb">кэшбэк 5%</div>
           <div class="progress"><div class="progress-bar" id="level-bar"></div></div>
-          <div class="level-next muted" id="level-next"></div>
+          <div class="level-next" id="level-next"></div>
         </div>
       </div>
 
       <div class="tiles anim-fade delay-2">
         <button type="button" class="tile" data-go="history">
-          <span class="tile-icon">📜</span>
+          <span class="tile-ico"><svg class="icon"><use href="#i-list"/></svg></span>
           <span class="tile-t">История</span>
-          <span class="tile-s muted" id="tile-hist">визиты</span>
+          <span class="tile-s" id="tile-hist">визиты</span>
         </button>
         <button type="button" class="tile" data-go="menu">
-          <span class="tile-icon">📖</span>
+          <span class="tile-ico"><svg class="icon"><use href="#i-book"/></svg></span>
           <span class="tile-t">Меню</span>
-          <span class="tile-s muted">заведения</span>
+          <span class="tile-s">заведения</span>
         </button>
         <button type="button" class="tile" data-go="promos">
-          <span class="tile-icon">🎁</span>
+          <span class="tile-ico"><svg class="icon"><use href="#i-gift-box"/></svg></span>
           <span class="tile-t">Акции</span>
-          <span class="tile-s muted">бонусы</span>
+          <span class="tile-s">бонусы и подарки</span>
         </button>
         <button type="button" class="tile" data-go="profile">
-          <span class="tile-icon">👤</span>
+          <span class="tile-ico"><svg class="icon"><use href="#i-user"/></svg></span>
           <span class="tile-t">Профиль</span>
-          <span class="tile-s muted">данные</span>
+          <span class="tile-s">данные карты</span>
         </button>
       </div>
 
       <div class="recent anim-fade delay-3">
         <div class="sec-h">Недавние <button type="button" class="link" data-go="history">вся история →</button></div>
-        <div id="recent-list" class="list empty-hint">Здесь появится история ваших визитов</div>
+        <div id="recent-list" class="list empty-hint">Здесь появится история<br>ваших визитов</div>
       </div>
     </section>
 
     <!-- History -->
     <section id="view-history" class="view">
       <header class="top sub">
-        <button type="button" class="back" data-go="home">← Назад</button>
+        <button type="button" class="back" data-go="home">
+          <svg class="icon sm" style="display:inline;vertical-align:middle"><use href="#i-back"/></svg> Назад
+        </button>
         <h2>История</h2>
       </header>
       <div id="history-list" class="list pad"></div>
@@ -131,7 +161,9 @@
     <!-- Menu -->
     <section id="view-menu" class="view">
       <header class="top sub">
-        <button type="button" class="back" data-go="home">← Назад</button>
+        <button type="button" class="back" data-go="home">
+          <svg class="icon sm" style="display:inline;vertical-align:middle"><use href="#i-back"/></svg> Назад
+        </button>
         <h2>Меню</h2>
       </header>
       <div id="menu-list" class="pad"></div>
@@ -140,17 +172,20 @@
     <!-- Promos -->
     <section id="view-promos" class="view">
       <header class="top sub">
-        <button type="button" class="back" data-go="home">← Назад</button>
+        <button type="button" class="back" data-go="home">
+          <svg class="icon sm" style="display:inline;vertical-align:middle"><use href="#i-back"/></svg> Назад
+        </button>
         <h2>Акции</h2>
       </header>
       <div class="pad">
         <article class="promo-card">
           <div class="promo-badge">Текущая</div>
           <h3>Каждый 8-й кальян бесплатно</h3>
-          <p>Копите отметки за каждый кальян — на 7-й получите free. Плюс кэшбэк бонусами с каждого чека.</p>
+          <p>Копите отметки за каждый кальян — после семи получите free. Плюс кэшбэк бонусами с каждого чека.</p>
         </article>
         <article class="promo-card">
-          <h3>Кэшбэк и уровни</h3>
+          <div class="promo-badge">Уровни</div>
+          <h3>Кэшбэк растёт с вами</h3>
           <p>Гость 5% · Свой 7% · Резидент 10%. Бонусами можно оплатить до 30% счёта.</p>
         </article>
       </div>
@@ -159,7 +194,9 @@
     <!-- Profile -->
     <section id="view-profile" class="view">
       <header class="top sub">
-        <button type="button" class="back" data-go="home">← Назад</button>
+        <button type="button" class="back" data-go="home">
+          <svg class="icon sm" style="display:inline;vertical-align:middle"><use href="#i-back"/></svg> Назад
+        </button>
         <h2>Профиль</h2>
       </header>
       <div class="profile-head pad">
@@ -171,10 +208,26 @@
         </div>
       </div>
       <div class="menu-list pad">
-        <button type="button" class="menu-row" data-go="history">История заказов</button>
-        <button type="button" class="menu-row" data-go="promos">Акции</button>
-        <button type="button" class="menu-row" id="btn-sopd-profile">Политика данных (СОПД)</button>
-        <a class="menu-row" id="addr-link" href="#" target="_blank" rel="noopener">Адрес и контакты</a>
+        <button type="button" class="menu-row" data-go="history">
+          <span class="row-ico"><svg class="icon sm"><use href="#i-list"/></svg></span>
+          История заказов
+          <svg class="icon sm chev"><use href="#i-chevron"/></svg>
+        </button>
+        <button type="button" class="menu-row" data-go="promos">
+          <span class="row-ico"><svg class="icon sm"><use href="#i-gift-box"/></svg></span>
+          Акции
+          <svg class="icon sm chev"><use href="#i-chevron"/></svg>
+        </button>
+        <button type="button" class="menu-row" id="btn-sopd-profile">
+          <span class="row-ico"><svg class="icon sm"><use href="#i-shield"/></svg></span>
+          Политика данных
+          <svg class="icon sm chev"><use href="#i-chevron"/></svg>
+        </button>
+        <a class="menu-row" id="addr-link" href="#" target="_blank" rel="noopener">
+          <span class="row-ico"><svg class="icon sm"><use href="#i-map"/></svg></span>
+          <span id="addr-text">Адрес и контакты</span>
+          <svg class="icon sm chev"><use href="#i-chevron"/></svg>
+        </a>
       </div>
     </section>
 
@@ -184,8 +237,11 @@
         <h2>Официант</h2>
       </header>
       <div class="pad">
-        <p class="muted">Сканируйте QR гостя или введите номер карты (6 цифр).</p>
-        <button type="button" class="btn primary block" id="btn-scan">📷 Сканировать QR</button>
+        <p class="muted" style="margin-bottom:16px">Сканируйте QR гостя или введите номер карты (6 цифр).</p>
+        <button type="button" class="btn primary block icon-left" id="btn-scan">
+          <svg class="icon sm" style="stroke:#1a1408"><use href="#i-scan"/></svg>
+          Сканировать QR
+        </button>
         <label>Карта / поиск</label>
         <input id="staff-q" type="text" inputmode="numeric" placeholder="482951" />
         <button type="button" class="btn ghost block" id="btn-find">Найти</button>
@@ -202,22 +258,34 @@
       </div>
     </section>
 
-    <!-- Tab bar -->
+    <!-- Tabs -->
     <nav id="tabs" class="tabs hidden">
-      <button type="button" class="tab active" data-go="home"><span>💳</span>Карта</button>
-      <button type="button" class="tab" data-go="promos"><span>🎁</span>Акции</button>
-      <button type="button" class="tab" data-go="profile"><span>👤</span>Профиль</button>
-      <button type="button" class="tab hidden" id="tab-staff" data-go="staff"><span>🧑‍🍳</span>Зал</button>
+      <button type="button" class="tab active" data-go="home">
+        <span class="tab-ico"><svg class="icon"><use href="#i-card"/></svg></span>
+        Карта
+      </button>
+      <button type="button" class="tab" data-go="promos">
+        <span class="tab-ico"><svg class="icon"><use href="#i-gift-box"/></svg></span>
+        Акции
+      </button>
+      <button type="button" class="tab" data-go="profile">
+        <span class="tab-ico"><svg class="icon"><use href="#i-user"/></svg></span>
+        Профиль
+      </button>
+      <button type="button" class="tab hidden" id="tab-staff" data-go="staff">
+        <span class="tab-ico"><svg class="icon"><use href="#i-staff"/></svg></span>
+        Зал
+      </button>
     </nav>
   </div>
 
   <!-- QR sheet -->
   <div id="qr-overlay" class="overlay hidden">
-    <div class="sheet anim-sheet">
+    <div class="sheet">
       <div class="sheet-handle"></div>
       <img id="qr-img" alt="QR карты" />
       <div class="qr-num" id="qr-num">—</div>
-      <p class="muted center">Покажите код официанту</p>
+      <p class="muted center" style="margin:8px 0 16px">Покажите код официанту</p>
       <button type="button" class="btn ghost block" id="qr-close">Закрыть</button>
     </div>
   </div>
