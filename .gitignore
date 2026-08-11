@@ -1,0 +1,9 @@
+*.db
+*.db-wal
+*.db-shm
+*.db.before-*
+*.backup.tmp
+bot.log
+setup.json
+__pycache__/
+*.pyc

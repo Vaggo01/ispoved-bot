@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>Исповедь — карта</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Boot -->
+    <section id="view-boot" class="view active">
+      <div class="boot-logo">ИСПОВЕДЬ</div>
+      <div class="boot-sub">лаундж-бар · Пермь</div>
+      <div class="spinner"></div>
+    </section>
+
+    <!-- Register -->
+    <section id="view-reg" class="view">
+      <div class="hero-bg"></div>
+      <div class="reg-sheet anim-up">
+        <h1>Регистрация</h1>
+        <p class="muted">Выпустите карту и получайте бонусы за каждый визит.</p>
+        <label>Имя *</label>
+        <input id="reg-name" type="text" placeholder="Как к вам обращаться" autocomplete="given-name" />
+        <label>Фамилия</label>
+        <input id="reg-last" type="text" placeholder="Необязательно" autocomplete="family-name" />
+        <label>Телефон</label>
+        <div class="row">
+          <input id="reg-phone" type="tel" placeholder="+7 …" />
+          <button type="button" class="btn ghost" id="btn-contact">Из TG</button>
+        </div>
+        <label>Дата рождения</label>
+        <input id="reg-bday" type="date" />
+        <label class="check">
+          <input type="checkbox" id="reg-sopd" checked />
+          <span>Согласен на обработку данных для программы лояльности</span>
+        </label>
+        <button type="button" class="btn primary block" id="btn-register">Выпустить карту</button>
+      </div>
+    </section>
+
+    <!-- Home / Card -->
+    <section id="view-home" class="view">
+      <header class="top">
+        <div>
+          <div class="hello muted">Привет,</div>
+          <div class="hello-name" id="hello-name">Гость</div>
+        </div>
+        <button type="button" class="icon-btn" id="btn-qr" aria-label="QR">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M4 4h6v6H4V4zm10 0h6v6h-6V4zM4 14h6v6H4v-6zm10 3h3v3h-3v-3zm0-3h6v2h-6v-2zm3 3h3v3h-3v-3z"/>
+          </svg>
+        </button>
+      </header>
+
+      <div class="stamp-card anim-fade">
+        <div class="stamp-label">ОТМЕТКИ</div>
+        <div class="stamps" id="stamps"></div>
+        <div class="stamp-banner">Каждый 8-й кальян бесплатно!</div>
+        <div class="free-count">
+          <span class="num" id="free-count">0</span>
+          <span class="lbl">бесплатных кальянов</span>
+        </div>
+      </div>
+
+      <div class="balance-card anim-fade delay-1">
+        <div class="bal-main">
+          <div class="bal-num" id="bonus">0</div>
+          <div class="bal-lbl">бонусов</div>
+        </div>
+        <div class="bal-side">
+          <div class="level-name" id="level-name">Гость</div>
+          <div class="level-cb" id="level-cb">кэшбэк 5%</div>
+          <div class="progress"><div class="progress-bar" id="level-bar"></div></div>
+          <div class="level-next muted" id="level-next"></div>
+        </div>
+      </div>
+
+      <div class="tiles anim-fade delay-2">
+        <button type="button" class="tile" data-go="history">
+          <span class="tile-icon">📜</span>
+          <span class="tile-t">История</span>
+          <span class="tile-s muted" id="tile-hist">визиты</span>
+        </button>
+        <button type="button" class="tile" data-go="menu">
+          <span class="tile-icon">📖</span>
+          <span class="tile-t">Меню</span>
+          <span class="tile-s muted">заведения</span>
+        </button>
+        <button type="button" class="tile" data-go="promos">
+          <span class="tile-icon">🎁</span>
+          <span class="tile-t">Акции</span>
+          <span class="tile-s muted">бонусы</span>
+        </button>
+        <button type="button" class="tile" data-go="profile">
+          <span class="tile-icon">👤</span>
+          <span class="tile-t">Профиль</span>
+          <span class="tile-s muted">данные</span>
+        </button>
+      </div>
+
+      <div class="recent anim-fade delay-3">
+        <div class="sec-h">Недавние <button type="button" class="link" data-go="history">вся история →</button></div>
+        <div id="recent-list" class="list empty-hint">Здесь появится история ваших визитов</div>
+      </div>
+    </section>
+
+    <!-- History -->
+    <section id="view-history" class="view">
+      <header class="top sub">
+        <button type="button" class="back" data-go="home">← Назад</button>
+        <h2>История</h2>
+      </header>
+      <div id="history-list" class="list pad"></div>
+    </section>
+
+    <!-- Menu -->
+    <section id="view-menu" class="view">
+      <header class="top sub">
+        <button type="button" class="back" data-go="home">← Назад</button>
+        <h2>Меню</h2>
+      </header>
+      <div id="menu-list" class="pad"></div>
+    </section>
+
+    <!-- Promos -->
+    <section id="view-promos" class="view">
+      <header class="top sub">
+        <button type="button" class="back" data-go="home">← Назад</button>
+        <h2>Акции</h2>
+      </header>
+      <div class="pad">
+        <article class="promo-card">
+          <div class="promo-badge">Текущая</div>
+          <h3>Каждый 8-й кальян бесплатно</h3>
+          <p>Копите отметки за каждый кальян — на 7-й получите free. Плюс кэшбэк бонусами с каждого чека.</p>
+        </article>
+        <article class="promo-card">
+          <h3>Кэшбэк и уровни</h3>
+          <p>Гость 5% · Свой 7% · Резидент 10%. Бонусами можно оплатить до 30% счёта.</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- Profile -->
+    <section id="view-profile" class="view">
+      <header class="top sub">
+        <button type="button" class="back" data-go="home">← Назад</button>
+        <h2>Профиль</h2>
+      </header>
+      <div class="profile-head pad">
+        <div class="avatar" id="avatar">И</div>
+        <div>
+          <div class="p-name" id="p-name">—</div>
+          <div class="muted" id="p-phone">—</div>
+          <div class="muted">Карта <code id="p-card">—</code></div>
+        </div>
+      </div>
+      <div class="menu-list pad">
+        <button type="button" class="menu-row" data-go="history">История заказов</button>
+        <button type="button" class="menu-row" data-go="promos">Акции</button>
+        <a class="menu-row" id="addr-link" href="#" target="_blank" rel="noopener">Адрес и контакты</a>
+      </div>
+    </section>
+
+    <!-- Staff -->
+    <section id="view-staff" class="view">
+      <header class="top sub">
+        <h2>Официант</h2>
+      </header>
+      <div class="pad">
+        <p class="muted">Сканируйте QR гостя или введите номер карты (6 цифр).</p>
+        <button type="button" class="btn primary block" id="btn-scan">📷 Сканировать QR</button>
+        <label>Карта / поиск</label>
+        <input id="staff-q" type="text" inputmode="numeric" placeholder="482951" />
+        <button type="button" class="btn ghost block" id="btn-find">Найти</button>
+        <div id="staff-guest" class="staff-box hidden"></div>
+        <div id="staff-form" class="staff-box hidden">
+          <label>Сумма чека ₽</label>
+          <input id="staff-total" type="number" inputmode="numeric" min="0" />
+          <label>Списать бонусов</label>
+          <input id="staff-pts" type="number" inputmode="numeric" min="0" value="0" />
+          <label class="check"><input type="checkbox" id="staff-hookah" /> Кальян (штамп +1)</label>
+          <button type="button" class="btn primary block" id="btn-checkout">Провести</button>
+          <pre id="staff-result" class="result"></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab bar -->
+    <nav id="tabs" class="tabs hidden">
+      <button type="button" class="tab active" data-go="home"><span>💳</span>Карта</button>
+      <button type="button" class="tab" data-go="promos"><span>🎁</span>Акции</button>
+      <button type="button" class="tab" data-go="profile"><span>👤</span>Профиль</button>
+      <button type="button" class="tab hidden" id="tab-staff" data-go="staff"><span>🧑‍🍳</span>Зал</button>
+    </nav>
+  </div>
+
+  <!-- QR sheet -->
+  <div id="qr-overlay" class="overlay hidden">
+    <div class="sheet anim-sheet">
+      <div class="sheet-handle"></div>
+      <img id="qr-img" alt="QR карты" />
+      <div class="qr-num" id="qr-num">—</div>
+      <p class="muted center">Покажите код официанту</p>
+      <button type="button" class="btn ghost block" id="qr-close">Закрыть</button>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

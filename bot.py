@@ -204,13 +204,21 @@ LOYALTY = {
 }
 
 # ── Google Таблица ────────────────────────────────────────────
-# Ссылка на веб-приложение Apps Script (см. ЗАПУСК.md, шаг 5).
+# Live-sync выключен по умолчанию (раньше был hardcoded URL — «подключена»
+# без реального Apps Script). Задайте SHEETS_URL в env, если скрипт есть.
 # Пустая строка = выгрузка выключена, бот работает как обычно.
-SHEETS_URL = os.environ.get("SHEETS_URL", "https://script.google.com/macros/s/AKfycbzO1EIMyyCiZChOn7wD_KarUs0jT5USNbCaPnEt_7nou13RI08kBlxP01KWnEwwSylEXQ/exec")
+SHEETS_URL = os.environ.get("SHEETS_URL", "").strip()
 
 # ── Ссылка на мини-приложение ─────────────────────────────────
-# HTTPS-адрес папки app/. Пусто = кнопка «Открыть карту» не показывается.
-WEBAPP_URL = os.environ.get("WEBAPP_URL", "")
+# HTTPS-адрес (GitHub Pages / CDN / reverse-proxy). Пусто = кнопка WebApp скрыта.
+WEBAPP_URL = os.environ.get("WEBAPP_URL", "").strip()
+
+# ── HTTP API для Mini App (stdlib ThreadingHTTPServer) ────────
+# API_PORT=0 — не поднимать HTTP (только long-poll, как раньше).
+API_HOST = os.environ.get("API_HOST", "0.0.0.0")
+API_PORT = int(os.environ.get("API_PORT", "8080"))
+# CORS: origin Mini App (https://vaggo01.github.io) или * для отладки
+API_CORS = os.environ.get("API_CORS", "*")
 
 # ── Резервные копии базы ──────────────────────────────────────
 # Раз в сутки бот присылает админам файл базы в личку.
@@ -650,8 +658,60 @@ def init():
         CREATE INDEX IF NOT EXISTS ix_visits_guest ON visits(guest_id);
         CREATE INDEX IF NOT EXISTS ix_visits_at    ON visits(at);
         CREATE INDEX IF NOT EXISTS ix_guests_card  ON guests(card);
+        CREATE TABLE IF NOT EXISTS schema_migrations(
+            id TEXT PRIMARY KEY,
+            applied_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS dialog_state(
+            tg_id INTEGER PRIMARY KEY,
+            mode TEXT DEFAULT '',
+            data_json TEXT DEFAULT '{}',
+            updated_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS idempotency_keys(
+            key TEXT PRIMARY KEY,
+            request_hash TEXT NOT NULL,
+            response_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
         """)
         c.commit()
+        _run_migrations(c)
+
+
+def _run_migrations(c):
+    """Additive migrations. Safe to re-run. Backup recommended before deploy."""
+    applied = {r[0] for r in c.execute("SELECT id FROM schema_migrations").fetchall()}
+    # Future SQL files can land here; baseline tables already created above.
+    for mid, sql in (
+        ("002_guest_profile_fields",
+         "ALTER TABLE guests ADD COLUMN last_name TEXT DEFAULT '';"
+         "ALTER TABLE guests ADD COLUMN gender TEXT DEFAULT '';"
+         "ALTER TABLE guests ADD COLUMN sopd_at TEXT DEFAULT '';"
+         "ALTER TABLE guests ADD COLUMN stamp_count INTEGER DEFAULT 0;"
+         "ALTER TABLE guests ADD COLUMN free_hookah_pending INTEGER DEFAULT 0;"
+         "ALTER TABLE guests ADD COLUMN profile_complete INTEGER DEFAULT 0;"),
+    ):
+        if mid in applied:
+            continue
+        try:
+            # SQLite: ADD COLUMN fails if exists — ignore duplicates on re-deploy
+            for stmt in sql.split(";"):
+                stmt = stmt.strip()
+                if not stmt:
+                    continue
+                try:
+                    c.execute(stmt)
+                except sqlite3.OperationalError as e:
+                    if "duplicate column" not in str(e).lower():
+                        raise
+            c.execute(
+                "INSERT OR IGNORE INTO schema_migrations(id, applied_at) VALUES(?,?)",
+                (mid, now()))
+            c.commit()
+        except Exception as e:
+            log("migration", mid, repr(e))
+
 
 # ── утилиты ───────────────────────────────────────────────────
 def now():
@@ -870,50 +930,126 @@ def preview(gid, total, use_pts=0):
             "to_pay": to_pay, "earned": earned,
             "balance_after": g["bonus"] - pay + earned}
 
-def checkout(gid, total, use_pts=0, items="", by=""):
+def _canonical_checkout_hash(gid, total, use_pts, items, by, hookah=False, redeem_hookah=False):
+    """Stable SHA-256 of checkout body (sorted keys, coerced types)."""
+    import hashlib
+    body = {
+        "by": str(by or ""),
+        "gid": int(gid),
+        "hookah": bool(hookah),
+        "items": str(items or ""),
+        "redeem_hookah": bool(redeem_hookah),
+        "total": int(total),
+        "use_pts": int(use_pts or 0),
+    }
+    raw = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def checkout(gid, total, use_pts=0, items="", by="", idempotency_key=None,
+             hookah=False, redeem_hookah=False):
+    """Conduct visit. Optional Idempotency-Key → single-commit with key row.
+
+    On replay (same key + same body): returns stored result with replay=True.
+    On same key + different body: {"error": "...", "code": "idempotency_mismatch"}.
+    notify/sheets only when replay is False (caller should check).
+    """
+    total = int(total)
+    use_pts = int(use_pts or 0)
+    req_hash = _canonical_checkout_hash(
+        gid, total, use_pts, items, by, hookah, redeem_hookah)
+
     with _lock:
+        if idempotency_key:
+            prev = conn().execute(
+                "SELECT request_hash, response_json FROM idempotency_keys WHERE key=?",
+                (idempotency_key,)).fetchone()
+            if prev:
+                if prev["request_hash"] != req_hash:
+                    return {"error": "Повтор с другими данными",
+                            "code": "idempotency_mismatch"}
+                try:
+                    cached = json.loads(prev["response_json"])
+                except Exception:
+                    cached = {"error": "Битый idempotency cache"}
+                cached["replay"] = True
+                return cached
+
         g = get(gid)
         if not g:
             return {"error": "Гость не найден"}
         if g["blocked"]:
             return {"error": "Карта заблокирована"}
-        if total <= 0:
+        if total < 0:
+            return {"error": "Сумма чека некорректна"}
+        if total == 0 and not redeem_hookah:
             return {"error": "Сумма чека должна быть больше нуля"}
 
         lv = level_of(g["spent"])
-        max_pay = min(total * LOYALTY["max_pay_percent"] // 100, g["bonus"])
+        max_pay = min(total * LOYALTY["max_pay_percent"] // 100, g["bonus"]) if total else 0
         pay = max(0, min(int(use_pts or 0), max_pay))
         to_pay = total - pay
-        earned = to_pay * lv["cashback"] // 100
+        earned = to_pay * lv["cashback"] // 100 if to_pay > 0 else 0
 
         extra, why = 0, []
-        if not g["got_second"] and g["visits"] == 1:
+        if not g["got_second"] and g["visits"] == 1 and total > 0:
             extra += LOYALTY["second_visit"]; why.append("второй визит")
         t = today()
         if g["bday"] and len(g["bday"]) >= 10 and g["bday"][5:10] == t[5:10] and g["got_bday"] != t[:4]:
             extra += LOYALTY["birthday"]; why.append("день рождения")
 
+        stamp = int(g.get("stamp_count") or 0)
+        free_pending = int(g.get("free_hookah_pending") or 0)
+        if redeem_hookah and free_pending:
+            free_pending = 0
+            why.append("бесплатный кальян")
+        if hookah and total > 0:
+            stamp += 1
+            if stamp >= 7:
+                stamp = 0
+                free_pending += 1
+                why.append("штамп: free кальян")
+
         new_bonus = g["bonus"] - pay + earned + extra
         conn().execute("""UPDATE guests SET bonus=?, spent=?, visits=?, last_visit=?,
-                          got_second=?, got_bday=? WHERE id=?""",
-            (new_bonus, g["spent"] + to_pay, g["visits"] + 1, now(),
+                          got_second=?, got_bday=?, stamp_count=?, free_hookah_pending=?
+                          WHERE id=?""",
+            (new_bonus, g["spent"] + to_pay, g["visits"] + (1 if total > 0 or redeem_hookah else 0),
+             now(),
              1 if (g["got_second"] or "второй визит" in why) else 0,
-             t[:4] if "день рождения" in why else g["got_bday"], gid))
+             t[:4] if "день рождения" in why else g["got_bday"],
+             stamp, free_pending, gid))
         conn().execute("""INSERT INTO visits(guest_id,type,total,paid_pts,paid_money,
                           earned,extra_why,items,at,by_user)
                           VALUES(?,?,?,?,?,?,?,?,?,?)""",
             (gid, "visit", total, pay, to_pay, earned + extra,
              " + ".join(why), items, now(), by))
-        conn().commit()
 
-    g2 = get(gid)
-    queue_sheet("guest", g2)
-    queue_sheet("visit", {"card": g2["card"], "name": g2["name"], "type": "визит",
-                          "total": total, "paid_pts": pay, "paid_money": to_pay,
-                          "earned": earned + extra, "items": items,
-                          "at": now(), "by": by, "why": " + ".join(why)})
-    return {"ok": True, "guest": g2, "earned": earned, "extra": extra,
-            "why": " + ".join(why), "paid": pay, "level": level_of(g2["spent"])}
+        g2 = get(gid)
+        result = {"ok": True, "guest": g2, "earned": earned, "extra": extra,
+                  "why": " + ".join(why), "paid": pay,
+                  "level": level_of(g2["spent"]), "replay": False}
+
+        if idempotency_key:
+            # Store guest as dict-friendly JSON
+            store = dict(result)
+            store["guest"] = dict(g2) if g2 else None
+            conn().execute(
+                """INSERT INTO idempotency_keys(key, request_hash, response_json, created_at)
+                   VALUES(?,?,?,?)""",
+                (idempotency_key, req_hash,
+                 json.dumps(store, ensure_ascii=False, default=str), now()))
+
+        conn().commit()  # single commit: visit + guest + key
+
+    g2 = result.get("guest") or get(gid)
+    if not result.get("replay"):
+        queue_sheet("guest", g2)
+        queue_sheet("visit", {"card": g2["card"], "name": g2["name"], "type": "визит",
+                              "total": total, "paid_pts": pay, "paid_money": to_pay,
+                              "earned": earned + extra, "items": items,
+                              "at": now(), "by": by, "why": " + ".join(why)})
+    return result
 
 def adjust(gid, delta, why="", by=""):
     with _lock:
@@ -1739,8 +1875,9 @@ def worker(tg, hour=5, who=None):
 """
 
 BOT_NAME = ""
-STATE = {}          # tg_id -> {"mode": ..., "data": {...}}
 LAST_SEEN = {}
+# dialog state lives in SQLite (dialog_state) — survives restarts
+MAINTENANCE = False  # set True during DB restore
 
 # ══════════════════════════════════════════════════════════════
 #  РОЛИ
@@ -1778,16 +1915,36 @@ def admin_ids():
     return out
 
 # ══════════════════════════════════════════════════════════════
-#  СОСТОЯНИЕ ДИАЛОГА
+#  СОСТОЯНИЕ ДИАЛОГА (SQLite — переживает рестарт)
 # ══════════════════════════════════════════════════════════════
 def set_state(uid, mode, **data):
-    STATE[uid] = {"mode": mode, "data": data}
+    with _lock:
+        conn().execute(
+            """INSERT INTO dialog_state(tg_id, mode, data_json, updated_at)
+               VALUES(?,?,?,?)
+               ON CONFLICT(tg_id) DO UPDATE SET
+                 mode=excluded.mode,
+                 data_json=excluded.data_json,
+                 updated_at=excluded.updated_at""",
+            (int(uid), mode or "", json.dumps(data, ensure_ascii=False), now()))
+        conn().commit()
 
 def get_state(uid):
-    return STATE.get(uid)
+    r = conn().execute(
+        "SELECT mode, data_json FROM dialog_state WHERE tg_id=?",
+        (int(uid),)).fetchone()
+    if not r:
+        return None
+    try:
+        data = json.loads(r["data_json"] or "{}")
+    except Exception:
+        data = {}
+    return {"mode": r["mode"], "data": data}
 
 def clear_state(uid):
-    STATE.pop(uid, None)
+    with _lock:
+        conn().execute("DELETE FROM dialog_state WHERE tg_id=?", (int(uid),))
+        conn().commit()
 
 # ══════════════════════════════════════════════════════════════
 #  ГОСТЬ
@@ -2210,7 +2367,7 @@ def staff_start(uid):
         f"<b>Панель официанта</b> · {esc(BRAND['name'])}\n\n"
         f"Начислить бонусы: нажмите «Начислить по чеку» или просто отправьте\n"
         f"<code>номер_карты сумма</code>\n"
-        f"<i>Например: 1001 2400</i>",
+        f"<i>Например: 482951 2400</i>",
         staff_menu())
 
 def staff_cb(uid, data, cb):
@@ -2221,9 +2378,9 @@ def staff_cb(uid, data, cb):
         set_state(uid, "s_pay")
         edit(uid, mid,
             "💳 <b>Начисление по чеку</b>\n\nОтправьте: <code>номер_карты сумма</code>\n"
-            "<i>Например: 1001 2400</i>\n\n"
+            "<i>Например: 482951 2400</i>\n\n"
             "Чтобы сразу списать бонусы, добавьте третьим числом:\n"
-            "<code>1001 2400 500</code>",
+            "<code>482951 2400 500</code>",
             kb([[("Отмена", "s:home")]]))
 
     elif act == "find":
@@ -2234,7 +2391,7 @@ def staff_cb(uid, data, cb):
     elif act == "coup":
         set_state(uid, "s_coup")
         edit(uid, mid, "🎟 <b>Проверка купона</b>\n\nОтправьте: <code>код номер_карты</code>\n"
-                          "<i>Например: X7K2M9 1001</i>",
+                          "<i>Например: X7K2M9 482951</i>",
                 kb([[("Отмена", "s:home")]]))
 
     elif act == "day":
@@ -2251,13 +2408,18 @@ def staff_cb(uid, data, cb):
         edit(uid, mid, "<b>Панель официанта</b>\n\nВыберите действие:", staff_menu())
 
     elif act.startswith("ok:"):
-        # подтверждение начисления: s:ok:gid:total:pts
-        _, _, gid, total, upts = data.split(":")
-        r = checkout(int(gid), int(total), int(upts), "", f"оф. {uid}")
+        # подтверждение начисления: s:ok:gid:total:pts  (+ optional key for double-tap)
+        parts = data.split(":")
+        # s:ok:gid:total:pts or s:ok:gid:total:pts:key
+        if len(parts) < 5:
+            answer(cb["id"], "Некорректные данные", True); return
+        gid, total, upts = int(parts[2]), int(parts[3]), int(parts[4])
+        idk = parts[5] if len(parts) > 5 else f"bot:{uid}:{gid}:{total}:{upts}:{today()}"
+        r = checkout(gid, total, upts, "", f"оф. {uid}", idempotency_key=idk)
         if r.get("error"):
             answer(cb["id"], r["error"], True); return
         g = r["guest"]
-        t = (f"✅ <b>Проведено</b>\n\n"
+        t = (f"✅ <b>{'Повтор (уже проведено)' if r.get('replay') else 'Проведено'}</b>\n\n"
              f"Карта {pretty_card(g['card'])} · {esc(g['name'])}\n"
              f"Чек: {money(int(total))}\n")
         if int(upts):
@@ -2267,7 +2429,8 @@ def staff_cb(uid, data, cb):
             t += f"🎉 {esc(r['why'])}\n"
         t += f"Баланс гостя: <b>{pts(g['bonus'])}</b>"
         edit(uid, mid, t, staff_menu())
-        notify_guest_visit(g, r, int(total), int(upts))
+        if not r.get("replay"):
+            notify_guest_visit(g, r, int(total), int(upts))
 
 def staff_text(uid, text):
     st = get_state(uid)
@@ -2315,8 +2478,9 @@ def staff_text(uid, text):
             t += f"<i>Можно списать до {pts(p['max_pay'])} бонусов</i>\n"
         t += f"➕ Начислим: <b>{pts(p['earned'])}</b>\n"
         t += f"💰 Баланс станет: <b>{pts(p['balance_after'])}</b>"
+        idk = "b" + gen_code(10)
         send(uid, t, kb([
-            [("✅ Подтвердить", f"s:ok:{g['id']}:{total}:{p['pay']}")],
+            [("✅ Подтвердить", f"s:ok:{g['id']}:{total}:{p['pay']}:{idk}")],
             [("Отмена", "s:home")]]))
         return
 
@@ -2673,7 +2837,7 @@ def _notify_role(tg_id, want):
                  "Доступна статистика, база гостей, купоны, рассылки и выгрузка.",
         "staff": "🧑‍🍳 Вам выдана роль <b>официанта</b>.\n\n"
                  "Теперь можно принимать чеки: пришлите номер карты и сумму, "
-                 "например <code>1001 2400</code>.",
+                 "например <code>482951 2400</code>.",
     }
     try:
         send(tg_id, texts.get(want, "Вам выдана новая роль.") +
@@ -3062,6 +3226,24 @@ def on_message(msg):
 
     if text.startswith("/start"):
         clear_state(uid)
+        # deep-link: /start c482951 or /start c_482951 — staff opens guest by card
+        payload = text[6:].strip()  # after "/start"
+        m_card = re.match(r"^c_?(\d{6})$", payload, re.I) if payload else None
+        if m_card and r in ("admin", "staff"):
+            g = get_by_card(m_card.group(1))
+            if g:
+                if r == "admin":
+                    show_guest_card_msg(uid, g["id"])
+                else:
+                    send(uid,
+                        f"👤 {esc(g['name'] or 'Гость')} · карта <code>{pretty_card(g['card'])}</code>\n"
+                        f"💰 {pts(g['bonus'])} бонусов · визитов {g['visits']}\n\n"
+                        f"Начислить: <code>{g['card']} сумма</code>",
+                        staff_menu())
+            else:
+                send(uid, f"❌ Карта <code>{esc(m_card.group(1))}</code> не найдена",
+                     staff_menu() if r == "staff" else admin_menu(uid))
+            return
         if r == "admin":
             admin_start(uid)
         elif r == "staff":
@@ -3213,6 +3395,23 @@ def main():
 
     if SHEETS_URL:
         log("Google Таблица подключена")
+    else:
+        log("Google Таблица: выкл (SHEETS_URL пуст) — CSV + бэкап в TG")
+
+    if WEBAPP_URL:
+        log(f"Mini App URL: {WEBAPP_URL}")
+    else:
+        log("Mini App: WEBAPP_URL не задан — кнопка WebApp скрыта")
+
+    # HTTP API + static Mini App (stdlib)
+    try:
+        import web_api
+        web_api.bind(sys.modules[__name__])
+        if API_PORT:
+            web_api.start_background(API_HOST, API_PORT)
+            log(f"HTTP API: {API_HOST}:{API_PORT}  ( /api/health , /app/ )")
+    except Exception as e:
+        log("HTTP API не стартовал:", repr(e))
 
     threading.Thread(target=sheets_worker, daemon=True).start()
     threading.Thread(target=daily_worker, daemon=True).start()
@@ -3234,8 +3433,18 @@ def main():
 
     call("setMyCommands", commands=[
         {"command": "start", "description": "Моя карта"},
+        {"command": "card",  "description": "Открыть мини-приложение"},
         {"command": "stop",  "description": "Отключить уведомления"},
     ])
+    if WEBAPP_URL:
+        try:
+            call("setChatMenuButton", menu_button={
+                "type": "web_app",
+                "text": "Карта",
+                "web_app": {"url": WEBAPP_URL},
+            })
+        except Exception as e:
+            log("menu button:", repr(e))
 
     offset = 0
     while True:
